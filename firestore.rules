@@ -1,0 +1,48 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 1. Settings node: General salon identity, contacts, hero, and about
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isValidId(settingId);
+    }
+
+    // 2. Services node: Live services, prices, descriptions, images
+    match /services/{serviceId} {
+      allow read: if true;
+      allow write: if isValidId(serviceId);
+    }
+
+    // 3. Notices node: Live announcements, alerts, and ticker bar
+    match /notices/{noticeId} {
+      allow read: if true;
+      allow write: if isValidId(noticeId);
+    }
+
+    // 4. Slots node: Real-time appointments availability
+    match /slots/{slotId} {
+      allow read: if true;
+      allow write: if isValidId(slotId);
+    }
+    match /timeSlots/{slotId} {
+      allow read: if true;
+      allow write: if isValidId(slotId);
+    }
+
+    // 5. Bookings node: Appointment submissions and status lifecycle
+    match /bookings/{bookingId} {
+      allow read: if true;
+      allow write: if isValidId(bookingId);
+    }
+  }
+}

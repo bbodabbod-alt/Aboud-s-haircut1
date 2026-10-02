@@ -1,0 +1,6 @@
+{
+  "name": "حلاقة عبود - صالون الحلاقة والعناية الرجالية",
+  "description": "موقع تفاعلي وعصري لصالون حلاقة عبود، يتيح استعراض العروض والخدمات وحجز المواعيد إلكترونياً مع مؤشر حالة المحل الحية.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

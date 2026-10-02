@@ -1,0 +1,127 @@
+{
+  "entities": {
+    "Settings": {
+      "title": "Settings",
+      "description": "Salon identity, contact details, working hours, and about section configuration.",
+      "type": "object",
+      "properties": {
+        "salonName": { "type": "string" },
+        "welcomeTitle": { "type": "string" },
+        "heroHeadline": { "type": "string" },
+        "heroSubtitle": { "type": "string" },
+        "heroBadge": { "type": "string" },
+        "heroImageUrl": { "type": "string" },
+        "phone": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "location": { "type": "string" },
+        "googleMapsUrl": { "type": "string" },
+        "instagramUrl": { "type": "string" },
+        "tiktokUrl": { "type": "string" },
+        "facebookUrl": { "type": "string" },
+        "aboutTitle": { "type": "string" },
+        "aboutSubtitle": { "type": "string" },
+        "aboutDescription": { "type": "string" },
+        "aboutDescriptionSecondary": { "type": "string" },
+        "aboutImageUrl": { "type": "string" },
+        "aboutExperienceYears": { "type": "string" },
+        "aboutMasterBarberName": { "type": "string" },
+        "openTime": { "type": "string" },
+        "closeTime": { "type": "string" },
+        "manualShopStatus": { "type": "string", "enum": ["auto", "open", "closed"] }
+      }
+    },
+    "Service": {
+      "title": "Service",
+      "description": "Haircut and grooming service item offered by the barbershop.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "isPopular": { "type": "boolean" },
+        "isAvailable": { "type": "boolean" }
+      },
+      "required": ["id", "name", "price"]
+    },
+    "Notice": {
+      "title": "Notice",
+      "description": "Barbershop announcements and ticker alerts.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "type": { "type": "string", "enum": ["alert", "discount", "holiday", "info"] },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "content", "isActive"]
+    },
+    "TimeSlotStatus": {
+      "title": "TimeSlotStatus",
+      "description": "Represents the real-time availability status of a booking time slot.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "dayKey": { "type": "string", "enum": ["today", "tomorrow", "after_tomorrow"] },
+        "timeLabel": { "type": "string" },
+        "period": { "type": "string", "enum": ["morning", "afternoon", "evening"] },
+        "isAvailable": { "type": "boolean" },
+        "booked": { "type": "boolean" },
+        "bookedCustomerName": { "type": "string" },
+        "bookedBookingId": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "dayKey", "timeLabel", "isAvailable", "booked"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Customer appointment booking record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "bookingCode": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "serviceId": { "type": "string" },
+        "serviceName": { "type": "string" },
+        "servicePrice": { "type": "number" },
+        "date": { "type": "string" },
+        "timeSlot": { "type": "string" },
+        "notes": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected", "completed", "cancelled"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "customerName", "customerPhone", "serviceName", "date", "timeSlot", "status"]
+    }
+  },
+  "firestore": {
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/Settings" },
+      "description": "Salon general settings and dynamic texts"
+    },
+    "/services/{serviceId}": {
+      "schema": { "$ref": "#/entities/Service" },
+      "description": "Real-time barbershop services and pricing"
+    },
+    "/notices/{noticeId}": {
+      "schema": { "$ref": "#/entities/Notice" },
+      "description": "Real-time announcements and alerts"
+    },
+    "/slots/{slotId}": {
+      "schema": { "$ref": "#/entities/TimeSlotStatus" },
+      "description": "Real-time barbershop time slots availability collection"
+    },
+    "/timeSlots/{slotId}": {
+      "schema": { "$ref": "#/entities/TimeSlotStatus" },
+      "description": "Legacy alias for real-time slots"
+    },
+    "/bookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/Booking" },
+      "description": "Barbershop customer appointment bookings collection"
+    }
+  }
+}
