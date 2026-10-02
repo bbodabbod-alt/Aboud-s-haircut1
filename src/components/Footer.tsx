@@ -9,8 +9,8 @@ interface FooterProps {
 
 export default function Footer({ onOpenBooking, onOpenMyBookings, settings }: FooterProps) {
   const salonName = settings?.salonName || 'حلاقة عبود';
-  const openTime = settings?.openTime || '10:00 ص';
-  const closeTime = settings?.closeTime || '11:30 م';
+  const openTime = settings?.openTime || '3:00 م';
+  const closeTime = settings?.closeTime || '2:00 ص';
   const phone = settings?.phone || '+964 780 000 0000';
   const location = settings?.location || 'الشارع العام - مقابل السوق التجاري';
 

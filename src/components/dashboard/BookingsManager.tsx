@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BookingSubmission, BookingStatus } from '../../types';
 import { updateBookingStatus, deleteBooking } from '../../utils/salonStore';
 import { completeBooking } from '../../utils/bookingApi';
-import { updateBookingStatusInFirebase } from '../../utils/firebaseBookingService';
+import { updateBookingStatusInFirebase, deleteBookingFromFirebase } from '../../utils/firebaseBookingService';
 import { 
   Calendar, Clock, User, Phone, CheckCircle, XCircle, 
   CheckCheck, AlertCircle, Search, ExternalLink, Trash2, Filter
@@ -16,30 +16,67 @@ interface BookingsManagerProps {
 export default function BookingsManager({ bookings, onBookingsUpdated }: BookingsManagerProps) {
   const [filter, setFilter] = useState<'all' | 'pending' | 'accepted' | 'rejected' | 'completed'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentBookings, setCurrentBookings] = useState<BookingSubmission[]>(bookings);
 
-  // Handle status update (Firebase & Local real-time sync)
+  // Sync with prop updates from Firebase onValue
+  useEffect(() => {
+    setCurrentBookings(bookings);
+  }, [bookings]);
+
+  // Handle status update (Firebase & Local real-time sync for isolated bookingId)
   const handleStatusChange = async (bookingId: string, newStatus: BookingStatus) => {
-    const target = bookings.find((b) => b.id === bookingId);
-    if (newStatus === 'completed' && target) {
-      await completeBooking(target);
-    } else {
-      updateBookingStatus(bookingId, newStatus);
-      if (target) {
+    if (!bookingId) return;
+
+    // 1. تحديث الحالة فوراً وبشكل سلس في الواجهة لنقل الحجز مباشرة إلى التبويب المقابل بدون ريفريش
+    setCurrentBookings((prev) =>
+      prev.map((b) => (b.id === bookingId ? { ...b, status: newStatus } : b))
+    );
+
+    const target = currentBookings.find((b) => b.id === bookingId) || bookings.find((b) => b.id === bookingId);
+
+    // 2. تحديث الحالة محلياً في LocalStorage
+    updateBookingStatus(bookingId, newStatus);
+
+    // 3. تحديث حالة الحجز المحدد فقط بنفس المعرف bookingId في Firebase Realtime Database
+    try {
+      if (newStatus === 'completed' && target) {
+        await completeBooking(target);
+      } else {
         await updateBookingStatusInFirebase(bookingId, newStatus, target);
       }
+    } catch (err) {
+      console.error(`Error updating status for booking ${bookingId}:`, err);
     }
+
     onBookingsUpdated();
   };
 
-  const handleDelete = (bookingId: string) => {
-    if (window.confirm('هل أنت متأكد من رغبتك في حذف هذا الحجز نهائياً؟')) {
-      deleteBooking(bookingId);
-      onBookingsUpdated();
+  // حذف الحجز المحدد فقط من Firebase Realtime Database
+  const handleDelete = async (bookingId: string) => {
+    if (!bookingId) return;
+    if (!window.confirm('هل أنت متأكد من رغبتك في حذف هذا الحجز نهائياً؟')) return;
+
+    const target = currentBookings.find((b) => b.id === bookingId) || bookings.find((b) => b.id === bookingId);
+
+    // 1. إزالة الحجز فوراً من الواجهة المحلية
+    setCurrentBookings((prev) => prev.filter((b) => b.id !== bookingId));
+
+    // 2. استدعاء دالة الحذف على المسار المخصص للـ ID المحدد فقط ref(rtdb, `bookings/${bookingId}`)
+    // وتجنب مسح أي حجز آخر إطلاقاً
+    try {
+      await deleteBookingFromFirebase(bookingId, target);
+    } catch (err) {
+      console.error(`Error deleting booking ${bookingId} from Firebase:`, err);
     }
+
+    // 3. حذف الحجز من LocalStorage
+    deleteBooking(bookingId);
+
+    onBookingsUpdated();
   };
 
-  // Filter and search
-  const filteredBookings = bookings.filter((b) => {
+  // Filter and search using currentBookings state
+  const filteredBookings = currentBookings.filter((b) => {
     const matchesFilter = filter === 'all' ? true : b.status === filter;
     const q = searchQuery.toLowerCase().trim();
     const matchesSearch = !q || 
@@ -50,8 +87,8 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
     return matchesFilter && matchesSearch;
   });
 
-  const pendingCount = bookings.filter((b) => b.status === 'pending').length;
-  const acceptedCount = bookings.filter((b) => b.status === 'accepted').length;
+  const pendingCount = currentBookings.filter((b) => b.status === 'pending').length;
+  const acceptedCount = currentBookings.filter((b) => b.status === 'accepted').length;
 
   const getStatusBadge = (status: BookingStatus) => {
     switch (status) {

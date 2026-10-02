@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { BarberService, BookingSubmission, DayTimeSlot, DayKey, SalonSettings } from '../types';
 import { SERVICES as DEFAULT_SERVICES } from '../data/services';
 import { submitBooking } from '../utils/bookingApi';
 import { getTimeSlotsForDay } from '../utils/salonStore';
 import { subscribeToFirebaseTimeSlots } from '../utils/firebaseBookingService';
-import { X, Calendar, Clock, User, Phone, CheckCircle2, AlertCircle, Share2, ArrowRight } from 'lucide-react';
+import { X, Calendar, Clock, User, Phone, CheckCircle2, AlertCircle, Share2, ArrowRight, Copy, Check } from 'lucide-react';
 
 interface BookingModalProps {
   isOpen: boolean;
@@ -26,9 +26,11 @@ export default function BookingModal({
   settings,
 }: BookingModalProps) {
   // ترتيب الخدمات تنازلياً حسب السعر (من الأعلى سعراً إلى الأقل سعراً)
-  const availableServices = (services && services.length > 0 ? services : DEFAULT_SERVICES)
-    .slice()
-    .sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
+  const availableServices = useMemo(() => {
+    return (services && services.length > 0 ? services : DEFAULT_SERVICES)
+      .slice()
+      .sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
+  }, [services]);
 
   // Form State
   const [serviceId, setServiceId] = useState<string>(selectedService?.id || availableServices[0].id);
@@ -45,6 +47,7 @@ export default function BookingModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [confirmedBooking, setConfirmedBooking] = useState<BookingSubmission | null>(existingBooking || null);
+  const [isCopied, setIsCopied] = useState(false);
 
   // Sync service when prop changes
   useEffect(() => {
@@ -55,16 +58,19 @@ export default function BookingModal({
     }
   }, [selectedService, availableServices]);
 
-  // Sync existing booking when modal opens
+  // فقط عند فتح النافذة لأول مرة يتم تهيئة حالة الحجز، وتجنب مسح كارت التأكيد أثناء بقاء النافذة مفتوحة
+  const prevIsOpenRef = useRef(false);
   useEffect(() => {
-    if (isOpen) {
-      if (existingBooking) {
-        setConfirmedBooking(existingBooking);
-      } else {
-        setConfirmedBooking(null);
-      }
+    if (isOpen && !prevIsOpenRef.current) {
+      setConfirmedBooking(existingBooking || null);
       setErrorMessage('');
+      setIsCopied(false);
+    } else if (!isOpen) {
+      setConfirmedBooking(null);
+      setErrorMessage('');
+      setIsCopied(false);
     }
+    prevIsOpenRef.current = isOpen;
   }, [isOpen, existingBooking]);
 
   // Dynamic Load Time Slots whenever selectedDate changes or LocalStorage / Firebase syncs
@@ -255,9 +261,23 @@ export default function BookingModal({
               <div className="p-5 rounded-2xl bg-neutral-900 border border-neutral-700/80 text-right space-y-3.5 shadow-lg relative">
                 <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
                   <span className="text-xs font-semibold text-neutral-400">رمز الحجز:</span>
-                  <span className="text-sm font-mono font-bold text-amber-400 bg-amber-400/10 px-3 py-1 rounded-lg border border-amber-400/20">
-                    {confirmedBooking.bookingCode}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-mono font-bold text-amber-400 bg-amber-400/10 px-3 py-1 rounded-lg border border-amber-400/20">
+                      {confirmedBooking.bookingCode}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(confirmedBooking.bookingCode);
+                        setIsCopied(true);
+                        setTimeout(() => setIsCopied(false), 2000);
+                      }}
+                      className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white transition-colors cursor-pointer"
+                      title="نسخ رمز الحجز"
+                    >
+                      {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-neutral-400" />}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-between text-xs sm:text-sm">

@@ -459,6 +459,41 @@ export async function updateBookingStatusInFirebase(
 }
 
 /**
+ * حذف حجز محدد فقط من Firebase Realtime Database
+ * المسار المحدد: ref(rtdb, `bookings/${bookingId}`)
+ * يمنع منعاً باتاً مسح مسار 'bookings' الكامل لتفادي مسح باقي البيانات
+ */
+export async function deleteBookingFromFirebase(
+  bookingId: string,
+  bookingDetails?: BookingSubmission
+): Promise<void> {
+  if (!bookingId) return;
+  try {
+    const bookingRef = ref(rtdb, `bookings/${bookingId}`);
+    await remove(bookingRef);
+
+    // إذا كان الحجز المحذوف يشغل موعداً، نحرر الموعد تلقائياً
+    if (bookingDetails && bookingDetails.status !== 'completed' && bookingDetails.status !== 'rejected') {
+      const dayKey = getDayKeyFromDateStr(bookingDetails.date);
+      const slotDocId = getSlotDocId(dayKey, bookingDetails.timeSlot);
+      const slotRef = ref(rtdb, `slots/${slotDocId}`);
+      await update(slotRef, {
+        id: slotDocId,
+        dayKey,
+        timeLabel: bookingDetails.timeSlot,
+        isAvailable: true,
+        booked: false,
+        bookedCustomerName: '',
+        bookedBookingId: '',
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  } catch (error) {
+    console.error(`Error deleting booking ${bookingId} from Realtime Database:`, error);
+  }
+}
+
+/**
  * تبديل حالة توقيت يدوياً من لوحة الأدمن
  */
 export async function toggleSlotInFirebase(

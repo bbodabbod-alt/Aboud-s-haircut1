@@ -56,13 +56,13 @@ export const MASTER_OWNER_ACCOUNT: AdminUser = {
 
 // جدول أوقات العمل الأسبوعي الافتراضي
 export const DEFAULT_WEEKLY_SCHEDULE: DaySchedule[] = [
-  { day: 'السبت', openTime: '10:00 ص', closeTime: '11:30 م', isClosed: false, note: 'متاح للعمل' },
-  { day: 'الأحد', openTime: '10:00 ص', closeTime: '11:30 م', isClosed: false, note: 'متاح للعمل' },
-  { day: 'الإثنين', openTime: '10:00 ص', closeTime: '11:30 م', isClosed: false, note: 'متاح للعمل' },
-  { day: 'الثلاثاء', openTime: '10:00 ص', closeTime: '11:30 م', isClosed: false, note: 'متاح للعمل' },
-  { day: 'الأربعاء', openTime: '10:00 ص', closeTime: '11:30 م', isClosed: false, note: 'متاح للعمل' },
-  { day: 'الخميس', openTime: '10:00 ص', closeTime: '11:30 م', isClosed: false, note: 'ساعات العمل الرسمية' },
-  { day: 'الجمعة', openTime: '01:30 م', closeTime: '11:30 م', isClosed: false, note: 'بعد صلاة الجمعة' },
+  { day: 'السبت', openTime: '3:00 م', closeTime: '2:00 ص', isClosed: false, note: 'متاح للعمل' },
+  { day: 'الأحد', openTime: '3:00 م', closeTime: '2:00 ص', isClosed: false, note: 'متاح للعمل' },
+  { day: 'الإثنين', openTime: '3:00 م', closeTime: '2:00 ص', isClosed: false, note: 'متاح للعمل' },
+  { day: 'الثلاثاء', openTime: '3:00 م', closeTime: '2:00 ص', isClosed: false, note: 'متاح للعمل' },
+  { day: 'الأربعاء', openTime: '3:00 م', closeTime: '2:00 ص', isClosed: false, note: 'متاح للعمل' },
+  { day: 'الخميس', openTime: '3:00 م', closeTime: '2:00 ص', isClosed: false, note: 'ساعات العمل الرسمية' },
+  { day: 'الجمعة', openTime: '3:00 م', closeTime: '2:00 ص', isClosed: false, note: 'بعد صلاة الجمعة' },
 ];
 
 // الإحصائيات والمميزات البصرية الافتراضية
@@ -84,8 +84,8 @@ export const DEFAULT_SALON_SETTINGS: SalonSettings = {
   heroImageUrl: 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?auto=format&fit=crop&q=80&w=1200',
   // Shop status & timing
   manualShopStatus: 'auto',
-  openTime: '10:00 ص',
-  closeTime: '11:30 م',
+  openTime: '3:00 م',
+  closeTime: '2:00 ص',
   // Contact & Location & Social
   phone: '07712818522',
   whatsapp: '9647712818522',

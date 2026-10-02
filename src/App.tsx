@@ -323,12 +323,6 @@ export default function App() {
 
   const handleBookingSuccess = (newBooking: BookingSubmission) => {
     refreshAllData();
-    setTimeout(() => {
-      const el = document.getElementById('customer-booking-details');
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth' });
-      }
-    }, 400);
   };
 
   const handleCancelCustomerBooking = (bookingId: string) => {

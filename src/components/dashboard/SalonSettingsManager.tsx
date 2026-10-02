@@ -20,8 +20,8 @@ export default function SalonSettingsManager({ settings, onSettingsUpdated }: Sa
   const [welcomeTitle, setWelcomeTitle] = useState(settings.welcomeTitle);
   const [heroSubtitle, setHeroSubtitle] = useState(settings.heroSubtitle);
   const [manualShopStatus, setManualShopStatus] = useState<'auto' | 'open' | 'closed'>(settings.manualShopStatus || 'auto');
-  const [openTime, setOpenTime] = useState(settings.openTime || '10:00 ص');
-  const [closeTime, setCloseTime] = useState(settings.closeTime || '11:30 م');
+  const [openTime, setOpenTime] = useState(settings.openTime || '3:00 م');
+  const [closeTime, setCloseTime] = useState(settings.closeTime || '2:00 ص');
   const [phone, setPhone] = useState(settings.phone || '+964 780 000 0000');
   const [location, setLocation] = useState(settings.location || 'الشارع العام - مقابل السوق التجاري');
   
@@ -410,7 +410,7 @@ export default function SalonSettingsManager({ settings, onSettingsUpdated }: Sa
                 required
                 value={openTime}
                 onChange={(e) => setOpenTime(e.target.value)}
-                placeholder="10:00 ص"
+                placeholder="3:00 م"
                 className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400 transition-colors font-mono"
               />
             </div>
@@ -425,7 +425,7 @@ export default function SalonSettingsManager({ settings, onSettingsUpdated }: Sa
                 required
                 value={closeTime}
                 onChange={(e) => setCloseTime(e.target.value)}
-                placeholder="11:30 م"
+                placeholder="2:00 ص"
                 className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400 transition-colors font-mono"
               />
             </div>
@@ -435,7 +435,7 @@ export default function SalonSettingsManager({ settings, onSettingsUpdated }: Sa
             <div className="space-y-0.5">
               <span className="text-[11px] text-neutral-400 block">معاينة النص المعروض:</span>
               <strong className="text-sm text-amber-300 font-mono">
-                دوام العمل: {openTime || '10:00 ص'} - {closeTime || '11:30 م'}
+                دوام العمل: {openTime || '3:00 م'} - {closeTime || '2:00 ص'}
               </strong>
             </div>
 

@@ -11,8 +11,8 @@ interface ScheduleSectionProps {
 }
 
 export default function ScheduleSection({ onOpenBooking, settings, weeklySchedule }: ScheduleSectionProps) {
-  const openTime = settings?.openTime || '10:00 ص';
-  const closeTime = settings?.closeTime || '11:30 م';
+  const openTime = settings?.openTime || '3:00 م';
+  const closeTime = settings?.closeTime || '2:00 ص';
 
   const [shopStatus, setShopStatus] = useState<ShopStatusResult>(
     getShopStatus(settings?.manualShopStatus || 'auto', openTime, closeTime)
@@ -30,7 +30,7 @@ export default function ScheduleSection({ onOpenBooking, settings, weeklySchedul
     setShopStatus(getShopStatus(settings?.manualShopStatus || 'auto', openTime, closeTime));
     const timer = setInterval(() => {
       setShopStatus(getShopStatus(settings?.manualShopStatus || 'auto', openTime, closeTime));
-    }, 20000);
+    }, 1000);
     return () => clearInterval(timer);
   }, [settings?.manualShopStatus, openTime, closeTime]);
 
@@ -69,10 +69,17 @@ export default function ScheduleSection({ onOpenBooking, settings, weeklySchedul
                   )}
                 </span>
                 <div>
-                  <h4 className="text-sm font-bold text-white">
-                    الحالة الحالية: <span className={shopStatus.isOpen ? 'text-emerald-400' : 'text-rose-400'}>{shopStatus.statusText}</span>
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    <span>الحالة الحالية:</span>
+                    <span className={shopStatus.isOpen ? 'text-emerald-400' : 'text-rose-400'}>{shopStatus.statusText}</span>
                   </h4>
-                  <p className="text-xs text-neutral-400 mt-0.5">{shopStatus.subText}</p>
+                  <p className="text-xs text-neutral-300 mt-1 leading-relaxed">{shopStatus.subText}</p>
+                  {!shopStatus.isOpen && shopStatus.countdown && (
+                    <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-mono font-bold">
+                      <Clock className="w-3.5 h-3.5 text-amber-400" />
+                      <span>العد التنازلي للافتتاح: {shopStatus.countdown.formatted}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 

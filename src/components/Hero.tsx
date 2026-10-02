@@ -11,8 +11,8 @@ interface HeroProps {
 }
 
 export default function Hero({ onOpenBooking, settings }: HeroProps) {
-  const openTime = settings?.openTime || '10:00 ص';
-  const closeTime = settings?.closeTime || '11:30 م';
+  const openTime = settings?.openTime || '3:00 م';
+  const closeTime = settings?.closeTime || '2:00 ص';
 
   const [shopStatus, setShopStatus] = useState<ShopStatusResult>(
     getShopStatus(settings?.manualShopStatus || 'auto', openTime, closeTime)
@@ -22,7 +22,7 @@ export default function Hero({ onOpenBooking, settings }: HeroProps) {
     setShopStatus(getShopStatus(settings?.manualShopStatus || 'auto', openTime, closeTime));
     const timer = setInterval(() => {
       setShopStatus(getShopStatus(settings?.manualShopStatus || 'auto', openTime, closeTime));
-    }, 15000);
+    }, 1000);
     return () => clearInterval(timer);
   }, [settings?.manualShopStatus, openTime, closeTime]);
 
@@ -69,7 +69,11 @@ export default function Hero({ onOpenBooking, settings }: HeroProps) {
               </span>
               <span className="text-neutral-600">·</span>
               <span className="text-xs text-neutral-300">
-                {shopStatus.isOpen ? `نستقبلكم حتى ${closeTime}` : `يفتح يومياً ${openTime}`}
+                {shopStatus.isOpen
+                  ? `نستقبلكم حتى ${closeTime}`
+                  : shopStatus.countdown
+                  ? `يفتح ${openTime} (متبقي ${shopStatus.countdown.hours}س و ${shopStatus.countdown.minutes}د)`
+                  : `يفتح يومياً ${openTime}`}
               </span>
             </motion.div>
 

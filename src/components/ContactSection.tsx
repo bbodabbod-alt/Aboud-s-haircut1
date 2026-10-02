@@ -17,8 +17,8 @@ export default function ContactSection({ settings }: ContactSectionProps) {
   const whatsappNum = (settings?.whatsapp || '9647712818522').replace(/\D/g, '');
   const displayLocation = settings?.location || 'الشارع العام - مقابل السوق التجاري';
   const mapsUrl = settings?.googleMapsUrl || 'https://maps.google.com/?q=Baghdad';
-  const openTime = settings?.openTime || '10:00 ص';
-  const closeTime = settings?.closeTime || '11:30 م';
+  const openTime = settings?.openTime || '3:00 م';
+  const closeTime = settings?.closeTime || '2:00 ص';
 
   const instagramUrl = settings?.instagramUrl;
   const tiktokUrl = settings?.tiktokUrl;

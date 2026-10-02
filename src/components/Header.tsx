@@ -32,20 +32,20 @@ export default function Header({
   pushEnabled = false,
   onRequestPush = () => {},
 }: HeaderProps) {
-  const openTime = settings?.openTime || '10:00 ص';
-  const closeTime = settings?.closeTime || '11:30 م';
+  const openTime = settings?.openTime || '3:00 م';
+  const closeTime = settings?.closeTime || '2:00 ص';
 
   const [shopStatus, setShopStatus] = useState<ShopStatusResult>(
     getShopStatus(settings?.manualShopStatus || 'auto', openTime, closeTime)
   );
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Update status when settings change or every 20 seconds
+  // Update status when settings change or every second for live countdown
   useEffect(() => {
     setShopStatus(getShopStatus(settings?.manualShopStatus || 'auto', openTime, closeTime));
     const timer = setInterval(() => {
       setShopStatus(getShopStatus(settings?.manualShopStatus || 'auto', openTime, closeTime));
-    }, 20000);
+    }, 1000);
     return () => clearInterval(timer);
   }, [settings?.manualShopStatus, openTime, closeTime]);
 
