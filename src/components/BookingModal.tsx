@@ -25,7 +25,10 @@ export default function BookingModal({
   services = DEFAULT_SERVICES,
   settings,
 }: BookingModalProps) {
-  const availableServices = services && services.length > 0 ? services : DEFAULT_SERVICES;
+  // ترتيب الخدمات تنازلياً حسب السعر (من الأعلى سعراً إلى الأقل سعراً)
+  const availableServices = (services && services.length > 0 ? services : DEFAULT_SERVICES)
+    .slice()
+    .sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
 
   // Form State
   const [serviceId, setServiceId] = useState<string>(selectedService?.id || availableServices[0].id);

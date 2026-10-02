@@ -101,6 +101,7 @@ export default function ServicesManager({ services, onServicesUpdated }: Service
         description: formDescription.trim(),
         note: formNote.trim(),
         image: formImage || undefined,
+        imageUrl: formImage || undefined,
       };
       updateSalonService(newService);
     } else if (editingService) {
@@ -114,6 +115,7 @@ export default function ServicesManager({ services, onServicesUpdated }: Service
         description: formDescription.trim(),
         note: formNote.trim(),
         image: formImage || undefined,
+        imageUrl: formImage || undefined,
       };
       updateSalonService(updated);
     }
@@ -157,26 +159,32 @@ export default function ServicesManager({ services, onServicesUpdated }: Service
 
       {/* Services Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {services.map((service) => (
-          <div
-            key={service.id}
-            className="rounded-2xl bg-[#121620] border border-neutral-800 hover:border-neutral-700 overflow-hidden flex flex-col justify-between transition-all group"
-          >
-            {/* Service Image / Preview */}
-            <div className="relative h-44 w-full bg-neutral-950 overflow-hidden border-b border-neutral-800">
-              {service.image ? (
-                <img
-                  src={service.image}
-                  alt={service.name}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center text-neutral-600 space-y-1">
-                  <ImageIcon className="w-8 h-8 stroke-[1.5]" />
-                  <span className="text-xs">بدون صورة</span>
-                </div>
-              )}
+        {[...services].sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0)).map((service) => {
+          const imgSrc = service.image || service.imageUrl;
+          return (
+            <div
+              key={service.id}
+              className="rounded-2xl bg-[#121620] border border-neutral-800 hover:border-neutral-700 overflow-hidden flex flex-col justify-between transition-all group"
+            >
+              {/* Service Image / Preview */}
+              <div className="relative h-44 w-full bg-neutral-950 overflow-hidden border-b border-neutral-800">
+                {imgSrc ? (
+                  <img
+                    src={imgSrc}
+                    alt={service.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      target.src = 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?auto=format&fit=crop&w=800&q=80';
+                    }}
+                  />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-neutral-600 space-y-1">
+                    <ImageIcon className="w-8 h-8 stroke-[1.5]" />
+                    <span className="text-xs">بدون صورة</span>
+                  </div>
+                )}
 
               {/* Price Tag Overlay */}
               <div className="absolute top-3 right-3 bg-neutral-950/80 backdrop-blur-md px-3 py-1 rounded-lg border border-neutral-700/80">
@@ -233,7 +241,8 @@ export default function ServicesManager({ services, onServicesUpdated }: Service
 
             </div>
           </div>
-        ))}
+        );
+      })}
       </div>
 
       {/* Edit / Add Modal */}

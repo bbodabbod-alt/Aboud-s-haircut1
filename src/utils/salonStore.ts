@@ -163,14 +163,11 @@ export function saveSalonSettings(newSettings: Partial<SalonSettings>): SalonSet
 export function getSalonServices(): BarberService[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.SERVICES);
-    if (!raw) {
-      localStorage.setItem(STORAGE_KEYS.SERVICES, JSON.stringify(INITIAL_SERVICES));
-      return INITIAL_SERVICES;
-    }
-    return JSON.parse(raw);
+    const parsed: BarberService[] = raw ? JSON.parse(raw) : INITIAL_SERVICES;
+    return [...parsed].sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
   } catch (err) {
     console.error('Error reading salon services:', err);
-    return INITIAL_SERVICES;
+    return [...INITIAL_SERVICES].sort((a, b) => b.price - a.price);
   }
 }
 

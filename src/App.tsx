@@ -184,7 +184,8 @@ export default function App() {
     // 2. Services (/services)
     const unsubscribeServices = subscribeToFirebaseServices((fbServices) => {
       if (fbServices && fbServices.length > 0) {
-        setSalonServices(fbServices);
+        const sorted = [...fbServices].sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
+        setSalonServices(sorted);
       }
     });
 

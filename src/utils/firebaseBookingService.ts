@@ -148,29 +148,44 @@ export function subscribeToFirebaseServices(
         if (data && typeof data === 'object') {
           Object.keys(data).forEach((key) => {
             const item = data[key];
-            if (item && item.name) {
+            if (item && (item.name || item.title)) {
+              const imageVal = 
+                item.image || 
+                item.imageUrl || 
+                item.img || 
+                item.photo || 
+                item.picture || 
+                item.thumbnail || 
+                item.url || 
+                '';
+
               list.push({
                 id: item.id || key,
-                name: item.name || '',
+                name: item.name || item.title || '',
                 price: Number(item.price || 0),
                 priceFormatted: item.priceFormatted || `${Number(item.price || 0).toLocaleString('en-US')} د.ع`,
                 category: item.category || 'haircut',
-                durationMinutes: Number(item.durationMinutes || 25),
-                description: item.description || '',
-                note: item.note || '',
-                image: item.image || item.imageUrl || undefined,
+                durationMinutes: Number(item.durationMinutes || item.duration || 25),
+                description: item.description || item.desc || '',
+                note: item.note || item.notes || '',
+                image: imageVal || undefined,
+                imageUrl: imageVal || undefined,
                 highlighted: Boolean(item.highlighted || item.isPopular),
               });
             }
           });
         }
         if (list.length > 0) {
+          // ترتيب تنازلي حسب السعر (من الأعلى سعراً إلى الأقل سعراً)
+          list.sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
           onUpdate(list);
         } else {
-          onUpdate(INITIAL_SERVICES);
+          const sortedDefaults = [...INITIAL_SERVICES].sort((a, b) => b.price - a.price);
+          onUpdate(sortedDefaults);
         }
       } else {
-        onUpdate(INITIAL_SERVICES);
+        const sortedDefaults = [...INITIAL_SERVICES].sort((a, b) => b.price - a.price);
+        onUpdate(sortedDefaults);
       }
     },
     (error) => {
@@ -184,8 +199,11 @@ export function subscribeToFirebaseServices(
 export async function saveServiceToFirebase(service: BarberService): Promise<void> {
   try {
     const serviceRef = ref(rtdb, `services/${service.id}`);
+    const img = service.image || service.imageUrl || '';
     await set(serviceRef, {
       ...service,
+      image: img,
+      imageUrl: img,
       updatedAt: new Date().toISOString(),
     });
   } catch (error) {

@@ -8,6 +8,7 @@ export interface BarberService {
   category: 'cleaning' | 'haircut' | 'beard';
   durationMinutes: number;
   image?: string;
+  imageUrl?: string;
   highlighted?: boolean;
 }
 

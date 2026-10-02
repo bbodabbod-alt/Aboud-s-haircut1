@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { BarberService, ServiceRatingsMap } from '../types';
 import { SERVICES as DEFAULT_SERVICES } from '../data/services';
-import { Sparkles, Calendar, AlertCircle, Check, Star, MessageSquare, Send, X, ThumbsUp } from 'lucide-react';
+import { Sparkles, Calendar, AlertCircle, Check, Star, MessageSquare, Send, ThumbsUp } from 'lucide-react';
 
 interface ServicesSectionProps {
   onSelectService: (service: BarberService) => void;
@@ -15,6 +15,21 @@ interface ServicesSectionProps {
     authorName?: string
   ) => void;
 }
+
+// Fallback صور بديلة فائقة الدقة والجمال عند غياب رابط الصورة أو انكساره
+export const DEFAULT_SERVICE_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?auto=format&fit=crop&w=800&q=80';
+
+export const getCategoryFallbackImage = (category?: string): string => {
+  switch (category) {
+    case 'cleaning':
+      return 'https://images.unsplash.com/photo-1516975080664-ed2fc6a32937?auto=format&fit=crop&w=800&q=80';
+    case 'beard':
+      return 'https://images.unsplash.com/photo-1621605815971-fbc98d665033?auto=format&fit=crop&w=800&q=80';
+    case 'haircut':
+    default:
+      return 'https://images.unsplash.com/photo-1622286342621-4bd786c2447c?auto=format&fit=crop&w=800&q=80';
+  }
+};
 
 export default function ServicesSection({
   onSelectService,
@@ -34,9 +49,16 @@ export default function ServicesSection({
 
   const availableServices = services && services.length > 0 ? services : DEFAULT_SERVICES;
 
-  const filteredServices = filter === 'all' 
-    ? availableServices 
-    : availableServices.filter(s => s.category === filter);
+  // 1. ترتيب الخدمات تنازلياً حسب السعر (من الأعلى سعراً إلى الأقل سعراً - From Highest to Lowest Price)
+  const sortedServices = useMemo(() => {
+    return [...availableServices].sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
+  }, [availableServices]);
+
+  // 2. تصفية الخدمات حسب التبويب المحدد
+  const filteredServices = useMemo(() => {
+    if (filter === 'all') return sortedServices;
+    return sortedServices.filter((s) => s.category === filter);
+  }, [sortedServices, filter]);
 
   // When a customer clicks on a star
   const handleStarSelect = (service: BarberService, starIndex: number) => {
@@ -71,7 +93,7 @@ export default function ServicesSection({
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-amber-400 text-xs font-semibold tracking-wider">
               <Sparkles className="w-4 h-4" />
-              <span>قائمة الأسعار والخدمات المتاحة</span>
+              <span>قائمة الأسعار والخدمات المتاحة (مرتبة حسب السعر)</span>
             </div>
             <h2 className="text-3xl sm:text-4xl font-extrabold text-white">
               العروض والخدمات المتميزة
@@ -91,7 +113,7 @@ export default function ServicesSection({
                   : 'text-neutral-400 hover:text-white'
               }`}
             >
-              جميع الخدمات ({availableServices.length})
+              جميع الخدمات ({sortedServices.length})
             </button>
             <button
               onClick={() => setFilter('cleaning')}
@@ -126,7 +148,7 @@ export default function ServicesSection({
           </div>
         </div>
 
-        {/* Services Cards Grid */}
+        {/* Services Cards Grid (Ordered Highest to Lowest Price) */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredServices.map((service) => {
             const isDeepClean = service.id === 'deep-cleanse';
@@ -139,6 +161,19 @@ export default function ServicesSection({
             const isFormOpen = activeRatingServiceId === service.id;
             const hasReviews = ratingData.count > 0;
 
+            // 2. التحقق من رابط الصورة مع دعم service.image و service.imageUrl وجميع التسميات البديلة
+            const fallbackImg = getCategoryFallbackImage(service.category);
+            const rawImageSrc = (
+              service.image || 
+              service.imageUrl || 
+              (service as any).img || 
+              (service as any).photo || 
+              (service as any).picture || 
+              (service as any).url || 
+              ''
+            ).trim();
+            const displayImageSrc = rawImageSrc || fallbackImg;
+
             return (
               <div
                 key={service.id}
@@ -148,28 +183,34 @@ export default function ServicesSection({
                     : 'border-neutral-800 hover:border-neutral-700'
                 }`}
               >
-                {/* Visual Thumbnail (بدون شارة المدة الزمنية) */}
-                {service.image ? (
-                  <div className="relative h-48 w-full overflow-hidden bg-neutral-950 border-b border-neutral-800/80">
-                    <img
-                      src={service.image}
-                      alt={service.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      referrerPolicy="no-referrer"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-neutral-900 via-neutral-900/30 to-transparent" />
-                    
-                    {/* Top Tag */}
-                    <div className="absolute top-3 right-3">
-                      {isDeepClean && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-amber-500 text-neutral-950 shadow-md">
-                          <Sparkles className="w-3 h-3" />
-                          العرض الأكثر طلباً
-                        </span>
-                      )}
-                    </div>
+                {/* Visual Thumbnail مع دعم Fallback Image عند الروابط الفارغة أو المكسورة */}
+                <div className="relative h-48 w-full overflow-hidden bg-neutral-950 border-b border-neutral-800/80">
+                  <img
+                    src={displayImageSrc}
+                    alt={service.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    referrerPolicy="no-referrer"
+                    loading="lazy"
+                    onError={(e) => {
+                      // Fallback تلقائي لمنع ظهور روابط مكسورة
+                      const target = e.currentTarget;
+                      if (target.src !== fallbackImg) {
+                        target.src = fallbackImg;
+                      }
+                    }}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-neutral-900 via-neutral-900/30 to-transparent" />
+                  
+                  {/* Top Tag */}
+                  <div className="absolute top-3 right-3">
+                    {isDeepClean && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-amber-500 text-neutral-950 shadow-md">
+                        <Sparkles className="w-3 h-3" />
+                        العرض الأكثر طلباً
+                      </span>
+                    )}
                   </div>
-                ) : null}
+                </div>
 
                 {/* Card Content */}
                 <div className="p-6 flex-1 flex flex-col justify-between space-y-4">
