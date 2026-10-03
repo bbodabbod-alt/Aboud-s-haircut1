@@ -13,6 +13,11 @@ import { SERVICES as INITIAL_SERVICES } from '../data/services';
 /**
  * Generate safe, deterministic key for Firebase Realtime Database
  */
+export function sanitizeForFirebase<T>(obj: T): T {
+  if (obj === null || obj === undefined) return '' as any;
+  return JSON.parse(JSON.stringify(obj, (key, value) => (value === undefined ? '' : value)));
+}
+
 export function getSlotDocId(dayKey: DayKey, timeLabel: string): string {
   const cleanTime = encodeURIComponent(timeLabel.trim())
     .replace(/%/g, '_')
@@ -100,9 +105,23 @@ export function subscribeToFirebaseSettings(
     (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.val();
+        const workingHours = data.workingHours || {};
+        const openTime = workingHours.openTime || data.openTime || DEFAULT_SALON_SETTINGS.openTime;
+        const closeTime = workingHours.closeTime || data.closeTime || DEFAULT_SALON_SETTINGS.closeTime;
+        const slotDurationMinutes = Number(workingHours.slotDurationMinutes || data.slotDurationMinutes || DEFAULT_SALON_SETTINGS.slotDurationMinutes || 90);
+
         onUpdate({
           ...DEFAULT_SALON_SETTINGS,
           ...data,
+          openTime,
+          closeTime,
+          slotDurationMinutes,
+          workingHours: {
+            openTime,
+            closeTime,
+            slotDurationMinutes,
+            updatedAt: workingHours.updatedAt || data.updatedAt,
+          },
         } as SalonSettings);
       } else {
         onUpdate(DEFAULT_SALON_SETTINGS);
@@ -128,6 +147,69 @@ export async function saveSettingsToFirebase(
   } catch (error) {
     console.error('Error saving settings to Realtime Database:', error);
   }
+}
+
+/**
+ * حفظ وتحديث أوقات العمل في المسار settings/workingHours فوراً في Firebase Realtime Database
+ * وتحديث كائن settings العام لضمان المزامنة الحية المباشرة مع واجهة الزبون ولوحة التحكم
+ */
+export async function saveWorkingHoursToFirebase(workingHours: {
+  openTime: string;
+  closeTime: string;
+  slotDurationMinutes: number;
+}): Promise<void> {
+  try {
+    const payload = sanitizeForFirebase({
+      openTime: workingHours.openTime,
+      closeTime: workingHours.closeTime,
+      slotDurationMinutes: Number(workingHours.slotDurationMinutes) || 90,
+      updatedAt: new Date().toISOString(),
+    });
+
+    // 1. تحديث مسار settings/workingHours فوراً
+    const workingHoursRef = ref(rtdb, 'settings/workingHours');
+    await set(workingHoursRef, payload);
+
+    // 2. تحديث كائن settings العام
+    const settingsRef = ref(rtdb, 'settings');
+    await update(settingsRef, {
+      openTime: payload.openTime,
+      closeTime: payload.closeTime,
+      slotDurationMinutes: payload.slotDurationMinutes,
+      workingHours: payload,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error saving working hours to Realtime Database:', error);
+  }
+}
+
+/**
+ * اشتراك لحظي بمسار settings/workingHours المخصص في Firebase Realtime Database
+ */
+export function subscribeToFirebaseWorkingHours(
+  onUpdate: (workingHours: { openTime: string; closeTime: string; slotDurationMinutes: number }) => void
+): () => void {
+  const workingHoursRef = ref(rtdb, 'settings/workingHours');
+  const unsubscribe = onValue(
+    workingHoursRef,
+    (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        if (data && (data.openTime || data.closeTime)) {
+          onUpdate({
+            openTime: data.openTime || '03:30 م',
+            closeTime: data.closeTime || '03:30 ص',
+            slotDurationMinutes: Number(data.slotDurationMinutes) || 90,
+          });
+        }
+      }
+    },
+    (error) => {
+      console.error('Realtime Database workingHours subscription error:', error);
+    }
+  );
+  return unsubscribe;
 }
 
 /* =========================================================================
@@ -356,13 +438,15 @@ export async function bookSlotInFirebase(
   const slotDocId = getSlotDocId(dayKey, bookingData.timeSlot);
 
   try {
-    // 1. تسجيل الحجز في /bookings بحالة مبدئية 'pending'
-    const bookingRef = ref(rtdb, `bookings/${bookingData.id}`);
-    await set(bookingRef, {
+    // 1. تسجيل الحجز في /bookings بحالة مبدئية 'pending' مع تعقيم البيانات
+    const safeBooking = sanitizeForFirebase({
       ...bookingData,
       status: 'pending',
       updatedAt: new Date().toISOString(),
     });
+
+    const bookingRef = ref(rtdb, `bookings/${bookingData.id}`);
+    await set(bookingRef, safeBooking);
 
     // 2. تحديث التوقيت في /slots إلى (booked: true, isAvailable: false)
     const slotRef = ref(rtdb, `slots/${slotDocId}`);
@@ -372,7 +456,7 @@ export async function bookSlotInFirebase(
       timeLabel: bookingData.timeSlot,
       isAvailable: false,
       booked: true,
-      bookedCustomerName: bookingData.customerName,
+      bookedCustomerName: bookingData.customerName || '',
       bookedBookingId: bookingData.id,
       updatedAt: new Date().toISOString(),
     });
@@ -389,12 +473,15 @@ export async function bookSlotInFirebase(
 export async function completeBookingInFirebase(
   booking: BookingSubmission
 ): Promise<void> {
+  const cleanId = String(booking?.id || '').trim();
+  if (!cleanId || cleanId === 'bookings') return;
+
   const dayKey = getDayKeyFromDateStr(booking.date);
   const slotDocId = getSlotDocId(dayKey, booking.timeSlot);
 
   try {
-    // 1. تحديث الحجز في /bookings إلى 'completed'
-    const bookingRef = ref(rtdb, `bookings/${booking.id}`);
+    // 1. تحديث الحجز في /bookings إلى 'completed' للمعرف المحدد فقط
+    const bookingRef = ref(rtdb, `bookings/${cleanId}`);
     await update(bookingRef, {
       status: 'completed',
       updatedAt: new Date().toISOString(),
@@ -419,17 +506,22 @@ export async function completeBookingInFirebase(
 
 /**
  * دورة حياة الحجز في Firebase (Booking Lifecycle):
- * - قبول -> 'accepted'
+ * - قبول -> 'accepted' أو 'approved'
  * - رفض -> 'rejected' (ويتم تحرير الموعد إلى booked: false)
  * - تم الإنجاز -> 'completed' (ويتم تحرير الموعد إلى booked: false)
+ * - ملغي -> 'cancelled'
  */
 export async function updateBookingStatusInFirebase(
   bookingId: string,
   newStatus: BookingStatus,
   bookingDetails?: BookingSubmission
 ): Promise<void> {
+  const cleanId = String(bookingId || '').trim();
+  if (!cleanId || cleanId === 'bookings') return;
+
   try {
-    const bookingRef = ref(rtdb, `bookings/${bookingId}`);
+    // تحديث حالة الحجز المحدد فقط بنفس المعرف bookingId في Firebase Realtime Database
+    const bookingRef = ref(rtdb, `bookings/${cleanId}`);
     await update(bookingRef, {
       status: newStatus,
       updatedAt: new Date().toISOString(),
@@ -460,19 +552,26 @@ export async function updateBookingStatusInFirebase(
 
 /**
  * حذف حجز محدد فقط من Firebase Realtime Database
- * المسار المحدد: ref(rtdb, `bookings/${bookingId}`)
+ * المسار المخصص للـ ID المحدد فقط: ref(rtdb, `bookings/${cleanId}`)
  * يمنع منعاً باتاً مسح مسار 'bookings' الكامل لتفادي مسح باقي البيانات
  */
 export async function deleteBookingFromFirebase(
   bookingId: string,
   bookingDetails?: BookingSubmission
 ): Promise<void> {
-  if (!bookingId) return;
+  const cleanId = String(bookingId || '').trim();
+  if (!cleanId || cleanId === 'bookings') {
+    console.error('deleteBookingFromFirebase rejected invalid target:', bookingId);
+    return;
+  }
+
   try {
-    const bookingRef = ref(rtdb, `bookings/${bookingId}`);
+    // 1. استدعاء دالة الحذف على المسار المخصص للـ ID المحدد فقط:
+    // ref(database, `bookings/${cleanId}`)
+    const bookingRef = ref(rtdb, `bookings/${cleanId}`);
     await remove(bookingRef);
 
-    // إذا كان الحجز المحذوف يشغل موعداً، نحرر الموعد تلقائياً
+    // 2. إذا كان الحجز المحذوف يشغل موعداً، نحرر الموعد تلقائياً
     if (bookingDetails && bookingDetails.status !== 'completed' && bookingDetails.status !== 'rejected') {
       const dayKey = getDayKeyFromDateStr(bookingDetails.date);
       const slotDocId = getSlotDocId(dayKey, bookingDetails.timeSlot);
@@ -489,7 +588,7 @@ export async function deleteBookingFromFirebase(
       });
     }
   } catch (error) {
-    console.error(`Error deleting booking ${bookingId} from Realtime Database:`, error);
+    console.error(`Error deleting booking ${cleanId} from Realtime Database:`, error);
   }
 }
 

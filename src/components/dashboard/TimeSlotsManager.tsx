@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { DayKey, DayTimeSlot, DayTimeSlotsMap } from '../../types';
 import { 
   getAllDayTimeSlotsMap, saveAllDayTimeSlotsMap, toggleTimeSlotAvailability, 
-  addCustomTimeSlot, updateTimeSlotLabel, deleteTimeSlot, resetTimeSlotsForDay 
+  addCustomTimeSlot, updateTimeSlotLabel, deleteTimeSlot, resetTimeSlotsForDay,
+  getSalonSettings, saveSalonSettings, syncDynamicTimeSlotsWithSettings
 } from '../../utils/salonStore';
-import { toggleSlotInFirebase, subscribeToFirebaseTimeSlots } from '../../utils/firebaseBookingService';
+import { toggleSlotInFirebase, subscribeToFirebaseTimeSlots, saveWorkingHoursToFirebase } from '../../utils/firebaseBookingService';
 import { 
   Clock, Plus, CheckCircle2, AlertCircle, Trash2, Edit2, 
-  Calendar, RotateCcw, Power, Check, X, User, Sparkles
+  Calendar, RotateCcw, Power, Check, X, User, Sparkles, RefreshCw
 } from 'lucide-react';
 
 interface TimeSlotsManagerProps {
@@ -17,6 +18,15 @@ interface TimeSlotsManagerProps {
 export default function TimeSlotsManager({ onSlotsUpdated }: TimeSlotsManagerProps) {
   const [slotsMap, setSlotsMap] = useState<DayTimeSlotsMap>(() => getAllDayTimeSlotsMap());
   const [selectedDay, setSelectedDay] = useState<DayKey>('today');
+
+  // Dynamic Generation Settings State
+  const initialSettings = getSalonSettings();
+  const [genOpenTime, setGenOpenTime] = useState<string>(initialSettings.openTime || '03:30 م');
+  const [genCloseTime, setGenCloseTime] = useState<string>(initialSettings.closeTime || '03:30 ص');
+  const [genDuration, setGenDuration] = useState<number>(
+    initialSettings.slotDurationMinutes || initialSettings.workingHours?.slotDurationMinutes || 90
+  );
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
 
   // New Slot Form State
   const [newTimeLabel, setNewTimeLabel] = useState('');
@@ -42,13 +52,66 @@ export default function TimeSlotsManager({ onSlotsUpdated }: TimeSlotsManagerPro
   const availableCount = currentSlots.filter((s) => s.isAvailable).length;
   const bookedCount = currentSlots.filter((s) => !s.isAvailable).length;
 
-  // Real-time synchronization from Firebase Firestore
+  // Real-time synchronization from Firebase
   useEffect(() => {
     const unsubscribe = subscribeToFirebaseTimeSlots((updatedMap) => {
-      setSlotsMap(updatedMap);
+      if (updatedMap && Object.keys(updatedMap).length > 0) {
+        setSlotsMap(updatedMap);
+      }
     });
     return () => unsubscribe();
   }, []);
+
+  // Handler for Automatic Dynamic Slots Generation (Requirement 2 & 1)
+  const handleRegenerateDynamicSlots = async () => {
+    setIsGenerating(true);
+    setSuccessMsg(null);
+    setErrorMsg(null);
+
+    try {
+      const duration = Math.max(15, Math.min(240, Number(genDuration) || 90));
+
+      // 1. حفظ في LocalStorage وتحديث الذاكرة
+      saveSalonSettings({
+        openTime: genOpenTime.trim(),
+        closeTime: genCloseTime.trim(),
+        slotDurationMinutes: duration,
+        workingHours: {
+          openTime: genOpenTime.trim(),
+          closeTime: genCloseTime.trim(),
+          slotDurationMinutes: duration,
+        },
+      });
+
+      // 2. تحديث المسار settings/workingHours فوراً في Firebase Realtime Database
+      await saveWorkingHoursToFirebase({
+        openTime: genOpenTime.trim(),
+        closeTime: genCloseTime.trim(),
+        slotDurationMinutes: duration,
+      });
+
+      // 3. إعادة توليد المواعيد الديناميكية بزيادة duration دقيقة ومزامنتها
+      const newMap = syncDynamicTimeSlotsWithSettings({
+        ...getSalonSettings(),
+        openTime: genOpenTime.trim(),
+        closeTime: genCloseTime.trim(),
+        slotDurationMinutes: duration,
+      });
+
+      setSlotsMap(newMap);
+      if (onSlotsUpdated) onSlotsUpdated();
+
+      setSuccessMsg(
+        `تم بنجاح توليد المواعيد وتقسيمها بفارق ${duration} دقيقة (من ${genOpenTime} إلى ${genCloseTime}) ومزامنتها مع Firebase!`
+      );
+      setTimeout(() => setSuccessMsg(null), 4500);
+    } catch (err) {
+      console.error('Error generating dynamic slots:', err);
+      setErrorMsg('حدث خطأ أثناء حفظ وتوليد المواعيد، يرجى المحاولة ثانية');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   // Toggle Availability (Local & Firebase)
   const handleToggleSlot = (slotId: string) => {

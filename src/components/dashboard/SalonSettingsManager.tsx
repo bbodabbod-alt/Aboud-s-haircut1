@@ -4,6 +4,7 @@ import {
   saveSalonSettings, getWeeklySchedule, saveWeeklySchedule, 
   getStatsHighlights, saveStatsHighlights, DEFAULT_WEEKLY_SCHEDULE, DEFAULT_STATS_HIGHLIGHTS 
 } from '../../utils/salonStore';
+import { saveWorkingHoursToFirebase } from '../../utils/firebaseBookingService';
 import { 
   Settings, Save, CheckCircle2, Scissors, Power, Phone, 
   Clock, Calendar, Award, ShieldCheck, ToggleLeft, ToggleRight, Sparkles 
@@ -20,8 +21,11 @@ export default function SalonSettingsManager({ settings, onSettingsUpdated }: Sa
   const [welcomeTitle, setWelcomeTitle] = useState(settings.welcomeTitle);
   const [heroSubtitle, setHeroSubtitle] = useState(settings.heroSubtitle);
   const [manualShopStatus, setManualShopStatus] = useState<'auto' | 'open' | 'closed'>(settings.manualShopStatus || 'auto');
-  const [openTime, setOpenTime] = useState(settings.openTime || '3:00 م');
-  const [closeTime, setCloseTime] = useState(settings.closeTime || '2:00 ص');
+  const [openTime, setOpenTime] = useState(settings.openTime || '03:30 م');
+  const [closeTime, setCloseTime] = useState(settings.closeTime || '03:30 ص');
+  const [slotDurationMinutes, setSlotDurationMinutes] = useState<number>(
+    settings.slotDurationMinutes || settings.workingHours?.slotDurationMinutes || 90
+  );
   const [phone, setPhone] = useState(settings.phone || '+964 780 000 0000');
   const [location, setLocation] = useState(settings.location || 'الشارع العام - مقابل السوق التجاري');
   
@@ -45,6 +49,11 @@ export default function SalonSettingsManager({ settings, onSettingsUpdated }: Sa
   useEffect(() => {
     setWeeklySchedule(getWeeklySchedule());
     setStatsHighlights(getStatsHighlights());
+    if (settings.openTime) setOpenTime(settings.openTime);
+    if (settings.closeTime) setCloseTime(settings.closeTime);
+    if (settings.slotDurationMinutes || settings.workingHours?.slotDurationMinutes) {
+      setSlotDurationMinutes(settings.slotDurationMinutes || settings.workingHours?.slotDurationMinutes || 90);
+    }
   }, [settings]);
 
   // Update specific day in schedule
@@ -72,27 +81,60 @@ export default function SalonSettingsManager({ settings, onSettingsUpdated }: Sa
     setTimeout(() => setStatsSavedSuccess(false), 3500);
   };
 
-  // Dedicated Save for General Working Hours
-  const handleSaveWorkingHoursOnly = () => {
+  // Dedicated Save for General Working Hours & Dynamic Time Slots Generation
+  const handleSaveWorkingHoursOnly = async () => {
+    const duration = Math.max(15, Math.min(240, Number(slotDurationMinutes) || 90));
+    const cleanOpen = openTime.trim();
+    const cleanClose = closeTime.trim();
+
+    // 1. تحديث محلي ومزامنة المواعيد
     saveSalonSettings({
-      openTime: openTime.trim(),
-      closeTime: closeTime.trim(),
+      openTime: cleanOpen,
+      closeTime: cleanClose,
+      slotDurationMinutes: duration,
+      workingHours: {
+        openTime: cleanOpen,
+        closeTime: cleanClose,
+        slotDurationMinutes: duration,
+      },
     });
+
+    // 2. تحديث المسار settings/workingHours فوراً في Firebase Realtime Database وتحديث الواجهة مباشرة
+    try {
+      await saveWorkingHoursToFirebase({
+        openTime: cleanOpen,
+        closeTime: cleanClose,
+        slotDurationMinutes: duration,
+      });
+    } catch (err) {
+      console.error('Error saving working hours to Firebase:', err);
+    }
+
     setHoursSavedSuccess(true);
     onSettingsUpdated();
     setTimeout(() => setHoursSavedSuccess(false), 3500);
   };
 
   // General All Save
-  const handleSaveAll = (e: React.FormEvent) => {
+  const handleSaveAll = async (e: React.FormEvent) => {
     e.preventDefault();
+    const duration = Math.max(15, Math.min(240, Number(slotDurationMinutes) || 90));
+    const cleanOpen = openTime.trim();
+    const cleanClose = closeTime.trim();
+
     saveSalonSettings({
       salonName: salonName.trim(),
       welcomeTitle: welcomeTitle.trim(),
       heroSubtitle: heroSubtitle.trim(),
       manualShopStatus,
-      openTime: openTime.trim(),
-      closeTime: closeTime.trim(),
+      openTime: cleanOpen,
+      closeTime: cleanClose,
+      slotDurationMinutes: duration,
+      workingHours: {
+        openTime: cleanOpen,
+        closeTime: cleanClose,
+        slotDurationMinutes: duration,
+      },
       phone: phone.trim(),
       location: location.trim(),
       weeklySchedule,
@@ -100,6 +142,16 @@ export default function SalonSettingsManager({ settings, onSettingsUpdated }: Sa
     });
     saveWeeklySchedule(weeklySchedule);
     saveStatsHighlights(statsHighlights);
+
+    try {
+      await saveWorkingHoursToFirebase({
+        openTime: cleanOpen,
+        closeTime: cleanClose,
+        slotDurationMinutes: duration,
+      });
+    } catch (err) {
+      console.error('Error updating working hours in Firebase:', err);
+    }
 
     setSavedSuccess(true);
     onSettingsUpdated();
@@ -380,72 +432,123 @@ export default function SalonSettingsManager({ settings, onSettingsUpdated }: Sa
           </div>
         </div>
 
-        {/* Section 3: General Working Hours baseline */}
+        {/* Section 3: General Working Hours & Dynamic Time Slots baseline */}
         <div className="p-5 sm:p-6 rounded-2xl bg-[#121620] border border-neutral-800 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-neutral-800 gap-2">
             <div className="flex items-center gap-2">
               <Clock className="w-5 h-5 text-amber-400" />
               <div>
-                <h3 className="text-sm font-bold text-white">النص العام لأوقات الدوام (الواجهة الرئيسية والفوتر)</h3>
-                <p className="text-[11px] text-neutral-400">النص المختصر الذي يظهر تحت صورة الصالون وفي أسفل الموقع</p>
+                <h3 className="text-sm font-bold text-white">أوقات العمل وتوليد المواعيد الديناميكية (Working Hours & Slots)</h3>
+                <p className="text-[11px] text-neutral-400">تحديد وقت البداية والنهاية ومدة الجلسة ليتم تقسيم فترات الحجز تلقائياً وحفظها في Firebase</p>
               </div>
             </div>
 
             {hoursSavedSuccess && (
               <span className="text-xs text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 rounded-xl flex items-center gap-1.5 animate-in fade-in">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>تم حفظ أوقات العمل!</span>
+                <span>تم تحديث وحفظ أوقات العمل في Firebase!</span>
               </span>
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-semibold text-neutral-300 mb-1.5 flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-amber-400" />
-                <span>توقيت فتح المحل:</span>
+                <span>توقيت بدء العمل:</span>
               </label>
               <input
                 type="text"
                 required
                 value={openTime}
                 onChange={(e) => setOpenTime(e.target.value)}
-                placeholder="3:00 م"
+                placeholder="03:30 PM أو 03:30 م"
                 className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400 transition-colors font-mono"
               />
+              <span className="text-[10px] text-neutral-400 mt-1 block">مثال: 03:30 PM أو 03:30 م</span>
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-neutral-300 mb-1.5 flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-amber-400" />
-                <span>توقيت إغلاق المحل:</span>
+                <span>توقيت نهاية العمل:</span>
               </label>
               <input
                 type="text"
                 required
                 value={closeTime}
                 onChange={(e) => setCloseTime(e.target.value)}
-                placeholder="2:00 ص"
+                placeholder="03:30 AM أو 03:30 ص"
                 className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400 transition-colors font-mono"
               />
+              <span className="text-[10px] text-neutral-400 mt-1 block">مثال: 03:30 AM (صباح اليوم التالي)</span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-neutral-300 mb-1.5 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-amber-400" />
+                <span>مدة الموعد/الجلسة (بالدقائق):</span>
+              </label>
+              <input
+                type="number"
+                min="15"
+                max="240"
+                step="5"
+                required
+                value={slotDurationMinutes}
+                onChange={(e) => setSlotDurationMinutes(Number(e.target.value) || 90)}
+                placeholder="90"
+                className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2.5 text-sm text-amber-400 font-bold focus:outline-none focus:border-amber-400 transition-colors font-mono"
+              />
+              <span className="text-[10px] text-neutral-400 mt-1 block">المدة الفاصلة بين كل موعد والآخر</span>
+            </div>
+          </div>
+
+          {/* Quick presets for duration */}
+          <div>
+            <span className="text-xs text-neutral-400 block mb-1.5">خيارات سريعة لمدة الموعد:</span>
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                { label: '90 دقيقة (ساعة ونصف)', val: 90 },
+                { label: '60 دقيقة (ساعة)', val: 60 },
+                { label: '45 دقيقة', val: 45 },
+                { label: '30 دقيقة', val: 30 },
+                { label: '120 دقيقة (ساعتان)', val: 120 },
+              ].map((preset) => (
+                <button
+                  key={preset.val}
+                  type="button"
+                  onClick={() => setSlotDurationMinutes(preset.val)}
+                  className={`px-3 py-1 text-xs rounded-lg transition-colors cursor-pointer border ${
+                    slotDurationMinutes === preset.val
+                      ? 'bg-amber-500 text-neutral-950 font-bold border-amber-400'
+                      : 'bg-neutral-900 text-neutral-300 hover:text-white border-neutral-700'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
             </div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-neutral-950/80 border border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="space-y-0.5">
-              <span className="text-[11px] text-neutral-400 block">معاينة النص المعروض:</span>
-              <strong className="text-sm text-amber-300 font-mono">
-                دوام العمل: {openTime || '3:00 م'} - {closeTime || '2:00 ص'}
+              <span className="text-[11px] text-neutral-400 block">معاينة النظام:</span>
+              <strong className="text-sm text-amber-300 font-mono block">
+                دوام العمل: {openTime || '03:30 م'} - {closeTime || '03:30 ص'} (فارق الموعد: {slotDurationMinutes} دقيقة)
               </strong>
+              <p className="text-[11px] text-neutral-400">
+                يقسم النظام تلقائياً مواعيد الحجز المتاحة للزبائن بفارق {slotDurationMinutes} دقيقة ويبدأ من {openTime} ويمتد عبر منتصف الليل حتى {closeTime}.
+              </p>
             </div>
 
             <button
               type="button"
               onClick={handleSaveWorkingHoursOnly}
-              className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-95 shrink-0"
+              className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-95 shrink-0"
             >
               <Save className="w-3.5 h-3.5" />
-              <span>حفظ أوقات العمل</span>
+              <span>حفظ أوقات العمل في Firebase</span>
             </button>
           </div>
         </div>

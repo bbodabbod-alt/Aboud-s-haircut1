@@ -17,6 +17,7 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
   const [filter, setFilter] = useState<'all' | 'pending' | 'accepted' | 'rejected' | 'completed'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentBookings, setCurrentBookings] = useState<BookingSubmission[]>(bookings);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Sync with prop updates from Firebase onValue
   useEffect(() => {
@@ -25,59 +26,67 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
 
   // Handle status update (Firebase & Local real-time sync for isolated bookingId)
   const handleStatusChange = async (bookingId: string, newStatus: BookingStatus) => {
-    if (!bookingId) return;
+    const cleanId = String(bookingId || '').trim();
+    if (!cleanId || cleanId === 'bookings') return;
 
     // 1. تحديث الحالة فوراً وبشكل سلس في الواجهة لنقل الحجز مباشرة إلى التبويب المقابل بدون ريفريش
     setCurrentBookings((prev) =>
-      prev.map((b) => (b.id === bookingId ? { ...b, status: newStatus } : b))
+      prev.map((b) => (b.id === cleanId ? { ...b, status: newStatus } : b))
     );
 
-    const target = currentBookings.find((b) => b.id === bookingId) || bookings.find((b) => b.id === bookingId);
+    const target = currentBookings.find((b) => b.id === cleanId) || bookings.find((b) => b.id === cleanId);
 
     // 2. تحديث الحالة محلياً في LocalStorage
-    updateBookingStatus(bookingId, newStatus);
+    updateBookingStatus(cleanId, newStatus);
 
     // 3. تحديث حالة الحجز المحدد فقط بنفس المعرف bookingId في Firebase Realtime Database
     try {
       if (newStatus === 'completed' && target) {
         await completeBooking(target);
       } else {
-        await updateBookingStatusInFirebase(bookingId, newStatus, target);
+        await updateBookingStatusInFirebase(cleanId, newStatus, target);
       }
     } catch (err) {
-      console.error(`Error updating status for booking ${bookingId}:`, err);
+      console.error(`Error updating status for booking ${cleanId}:`, err);
     }
 
     onBookingsUpdated();
   };
 
   // حذف الحجز المحدد فقط من Firebase Realtime Database
-  const handleDelete = async (bookingId: string) => {
-    if (!bookingId) return;
-    if (!window.confirm('هل أنت متأكد من رغبتك في حذف هذا الحجز نهائياً؟')) return;
+  const handleConfirmDelete = async (bookingId: string) => {
+    const cleanId = String(bookingId || '').trim();
+    if (!cleanId || cleanId === 'bookings') return;
 
-    const target = currentBookings.find((b) => b.id === bookingId) || bookings.find((b) => b.id === bookingId);
+    const target = currentBookings.find((b) => b.id === cleanId) || bookings.find((b) => b.id === cleanId);
 
     // 1. إزالة الحجز فوراً من الواجهة المحلية
-    setCurrentBookings((prev) => prev.filter((b) => b.id !== bookingId));
+    setCurrentBookings((prev) => prev.filter((b) => b.id !== cleanId));
+    setDeleteConfirmId(null);
 
-    // 2. استدعاء دالة الحذف على المسار المخصص للـ ID المحدد فقط ref(rtdb, `bookings/${bookingId}`)
+    // 2. استدعاء دالة الحذف على المسار المخصص للـ ID المحدد فقط:
+    // ref(database, `bookings/${selectedBookingId}`)
     // وتجنب مسح أي حجز آخر إطلاقاً
     try {
-      await deleteBookingFromFirebase(bookingId, target);
+      await deleteBookingFromFirebase(cleanId, target);
     } catch (err) {
-      console.error(`Error deleting booking ${bookingId} from Firebase:`, err);
+      console.error(`Error deleting booking ${cleanId} from Firebase:`, err);
     }
 
     // 3. حذف الحجز من LocalStorage
-    deleteBooking(bookingId);
+    deleteBooking(cleanId);
 
     onBookingsUpdated();
   };
 
   // Filter and search using currentBookings state
   const filteredBookings = currentBookings.filter((b) => {
-    const matchesFilter = filter === 'all' ? true : b.status === filter;
+    const matchesFilter = filter === 'all'
+      ? true
+      : filter === 'accepted'
+      ? (b.status === 'accepted' || b.status === 'approved')
+      : b.status === filter;
+
     const q = searchQuery.toLowerCase().trim();
     const matchesSearch = !q || 
       b.customerName.toLowerCase().includes(q) ||
@@ -88,7 +97,7 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
   });
 
   const pendingCount = currentBookings.filter((b) => b.status === 'pending').length;
-  const acceptedCount = currentBookings.filter((b) => b.status === 'accepted').length;
+  const acceptedCount = currentBookings.filter((b) => b.status === 'accepted' || b.status === 'approved').length;
 
   const getStatusBadge = (status: BookingStatus) => {
     switch (status) {
@@ -100,6 +109,7 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
           </span>
         );
       case 'accepted':
+      case 'approved':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
             <CheckCircle className="w-3.5 h-3.5" />
@@ -322,10 +332,10 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
                 
                 {/* Decision Actions */}
                 <div className="flex items-center gap-2">
-                  {b.status !== 'accepted' && (
+                  {b.status !== 'accepted' && b.status !== 'approved' && (
                     <button
                       onClick={() => handleStatusChange(b.id, 'accepted')}
-                      className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                      className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
                       title="قبول الحجز"
                     >
                       <CheckCircle className="w-3.5 h-3.5" />
@@ -336,7 +346,7 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
                   {b.status !== 'rejected' && (
                     <button
                       onClick={() => handleStatusChange(b.id, 'rejected')}
-                      className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                      className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
                       title="رفض الحجز"
                     >
                       <XCircle className="w-3.5 h-3.5" />
@@ -347,7 +357,7 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
                   {b.status !== 'completed' && (
                     <button
                       onClick={() => handleStatusChange(b.id, 'completed')}
-                      className="px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-sky-600 hover:text-white text-neutral-200 text-xs font-semibold border border-neutral-700 transition-colors flex items-center gap-1 cursor-pointer"
+                      className="px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-sky-600 hover:text-white text-neutral-200 text-xs font-semibold border border-neutral-700 transition-colors flex items-center gap-1 cursor-pointer active:scale-95"
                       title="تحديد الحجز كمنجز"
                     >
                       <CheckCheck className="w-3.5 h-3.5 text-sky-400" />
@@ -356,12 +366,12 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
                   )}
                 </div>
 
-                {/* Secondary Actions */}
+                {/* Secondary Actions & Safe Deletion Confirmation */}
                 <div className="flex items-center gap-2">
                   <a
                     href={`https://wa.me/?text=${encodeURIComponent(
                       `مرحباً أخي ${b.customerName} 💈\nبخصوص حجزك (${b.serviceName}) لموعد ${b.timeSlot}:\n` +
-                      (b.status === 'accepted' ? 'يسعدنا إبلاغك بأنه تم قبول وتأكيد حجزك، نتشرف بحضورك!' :
+                      (b.status === 'accepted' || b.status === 'approved' ? 'يسعدنا إبلاغك بأنه تم قبول وتأكيد حجزك، نتشرف بحضورك!' :
                        b.status === 'rejected' ? 'نعتذر منك لعدم إمكانية استقبال الحجز في هذا التوقيت، يرجى اختيار موعد آخر.' :
                        'نحن نتواصل معك بخصوص موعدك.')
                     )}`}
@@ -373,13 +383,31 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
                     <span>مراسلة واتساب</span>
                   </a>
 
-                  <button
-                    onClick={() => handleDelete(b.id)}
-                    className="p-1.5 rounded-lg text-neutral-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-                    title="حذف هذا الموعد"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  {deleteConfirmId === b.id ? (
+                    <div className="flex items-center gap-1.5 bg-rose-950/90 border border-rose-600/50 p-1 rounded-xl animate-in fade-in">
+                      <span className="text-[10px] text-rose-300 px-1 font-semibold">تأكيد الحذف؟</span>
+                      <button
+                        onClick={() => handleConfirmDelete(b.id)}
+                        className="px-2 py-0.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-[10px] font-bold cursor-pointer transition-colors"
+                      >
+                        نعم، احذف
+                      </button>
+                      <button
+                        onClick={() => setDeleteConfirmId(null)}
+                        className="px-1.5 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-[10px] cursor-pointer transition-colors"
+                      >
+                        إلغاء
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setDeleteConfirmId(b.id)}
+                      className="p-1.5 rounded-lg text-neutral-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                      title="حذف هذا الموعد المحدد فقط"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
 
               </div>

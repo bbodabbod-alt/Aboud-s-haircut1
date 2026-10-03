@@ -16,8 +16,9 @@ import {
 import { SERVICES as INITIAL_SERVICES } from '../data/services';
 import { 
   saveSettingsToFirebase, saveServiceToFirebase, deleteServiceFromFirebase,
-  saveNoticeToFirebase, deleteNoticeFromFirebase
+  saveNoticeToFirebase, deleteNoticeFromFirebase, saveWorkingHoursToFirebase
 } from './firebaseBookingService';
+import { parseTimeString } from './shopHours';
 
 // المفاتيح الموحدة في التخزين المحلي (LocalStorage Keys)
 const STORAGE_KEYS = {
@@ -56,13 +57,13 @@ export const MASTER_OWNER_ACCOUNT: AdminUser = {
 
 // جدول أوقات العمل الأسبوعي الافتراضي
 export const DEFAULT_WEEKLY_SCHEDULE: DaySchedule[] = [
-  { day: 'السبت', openTime: '3:00 م', closeTime: '2:00 ص', isClosed: false, note: 'متاح للعمل' },
-  { day: 'الأحد', openTime: '3:00 م', closeTime: '2:00 ص', isClosed: false, note: 'متاح للعمل' },
-  { day: 'الإثنين', openTime: '3:00 م', closeTime: '2:00 ص', isClosed: false, note: 'متاح للعمل' },
-  { day: 'الثلاثاء', openTime: '3:00 م', closeTime: '2:00 ص', isClosed: false, note: 'متاح للعمل' },
-  { day: 'الأربعاء', openTime: '3:00 م', closeTime: '2:00 ص', isClosed: false, note: 'متاح للعمل' },
-  { day: 'الخميس', openTime: '3:00 م', closeTime: '2:00 ص', isClosed: false, note: 'ساعات العمل الرسمية' },
-  { day: 'الجمعة', openTime: '3:00 م', closeTime: '2:00 ص', isClosed: false, note: 'بعد صلاة الجمعة' },
+  { day: 'السبت', openTime: '03:30 م', closeTime: '03:30 ص', isClosed: false, note: 'متاح للعمل' },
+  { day: 'الأحد', openTime: '03:30 م', closeTime: '03:30 ص', isClosed: false, note: 'متاح للعمل' },
+  { day: 'الإثنين', openTime: '03:30 م', closeTime: '03:30 ص', isClosed: false, note: 'متاح للعمل' },
+  { day: 'الثلاثاء', openTime: '03:30 م', closeTime: '03:30 ص', isClosed: false, note: 'متاح للعمل' },
+  { day: 'الأربعاء', openTime: '03:30 م', closeTime: '03:30 ص', isClosed: false, note: 'متاح للعمل' },
+  { day: 'الخميس', openTime: '03:30 م', closeTime: '03:30 ص', isClosed: false, note: 'ساعات العمل الرسمية' },
+  { day: 'الجمعة', openTime: '03:30 م', closeTime: '03:30 ص', isClosed: false, note: 'بعد صلاة الجمعة' },
 ];
 
 // الإحصائيات والمميزات البصرية الافتراضية
@@ -84,8 +85,14 @@ export const DEFAULT_SALON_SETTINGS: SalonSettings = {
   heroImageUrl: 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?auto=format&fit=crop&q=80&w=1200',
   // Shop status & timing
   manualShopStatus: 'auto',
-  openTime: '3:00 م',
-  closeTime: '2:00 ص',
+  openTime: '03:30 م',
+  closeTime: '03:30 ص',
+  slotDurationMinutes: 90,
+  workingHours: {
+    openTime: '03:30 م',
+    closeTime: '03:30 ص',
+    slotDurationMinutes: 90,
+  },
   // Contact & Location & Social
   phone: '07712818522',
   whatsapp: '9647712818522',
@@ -150,6 +157,19 @@ export function saveSalonSettings(newSettings: Partial<SalonSettings>): SalonSet
   const updated = { ...current, ...newSettings };
   localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
   broadcastLocalChange(STORAGE_KEYS.SETTINGS);
+
+  // إذا تم تغيير أوقات العمل أو مدة الجلسة، نزامن المواعيد الديناميكية ومسار settings/workingHours في Firebase فوراً
+  if (newSettings.openTime || newSettings.closeTime || newSettings.slotDurationMinutes || newSettings.workingHours) {
+    syncDynamicTimeSlotsWithSettings(updated);
+    saveWorkingHoursToFirebase({
+      openTime: updated.openTime,
+      closeTime: updated.closeTime,
+      slotDurationMinutes: Number(updated.slotDurationMinutes) || 90,
+    }).catch((err) => {
+      console.error('Firebase working hours sync error:', err);
+    });
+  }
+
   saveSettingsToFirebase(updated).catch((err) => {
     console.error('Firebase settings sync error:', err);
   });
@@ -260,7 +280,9 @@ export function updateBookingStatus(bookingId: string, newStatus: BookingStatus)
 }
 
 export function deleteBooking(bookingId: string): BookingSubmission[] {
-  const updated = getAllBookings().filter((b) => b.id !== bookingId);
+  const cleanId = String(bookingId || '').trim();
+  if (!cleanId || cleanId === 'bookings') return getAllBookings();
+  const updated = getAllBookings().filter((b) => b.id !== cleanId);
   saveAllBookings(updated);
   return updated;
 }
@@ -937,51 +959,177 @@ export function triggerBrowserNotificationIfPermitted(title: string, body: strin
    - مزامنة فورية مع حجوزات الزبائن عبر LocalStorage
    ========================================================================= */
 
-export function createDefaultTimeSlots(): DayTimeSlot[] {
-  return [
-    { id: 'slot_1', timeLabel: '10:30 صباحاً', period: 'morning', isAvailable: true },
-    { id: 'slot_2', timeLabel: '11:30 صباحاً', period: 'morning', isAvailable: true },
-    { id: 'slot_3', timeLabel: '01:00 ظهراً', period: 'afternoon', isAvailable: true },
-    { id: 'slot_4', timeLabel: '02:00 ظهراً', period: 'afternoon', isAvailable: true },
-    { id: 'slot_5', timeLabel: '03:30 عصراً', period: 'afternoon', isAvailable: true },
-    { id: 'slot_6', timeLabel: '04:30 عصراً', period: 'afternoon', isAvailable: false },
-    { id: 'slot_7', timeLabel: '06:00 مساءً', period: 'evening', isAvailable: true },
-    { id: 'slot_8', timeLabel: '07:15 مساءً', period: 'evening', isAvailable: true },
-    { id: 'slot_9', timeLabel: '08:30 مساءً', period: 'evening', isAvailable: true },
-    { id: 'slot_10', timeLabel: '09:45 مساءً', period: 'evening', isAvailable: false },
-    { id: 'slot_11', timeLabel: '10:45 مساءً', period: 'evening', isAvailable: true },
-  ];
+/**
+ * دالة توليد وحساب المواعيد الديناميكية (Dynamic Time Slots Generation):
+ * تقسم أوقات الحجز تلقائياً بناءً على:
+ * 1. وقت بداية العمل (openTime، مثال: 03:30 PM أو 03:30 م)
+ * 2. وقت نهاية العمل (closeTime، مثال: 03:30 AM اليوم التالي أو 03:30 ص)
+ * 3. مدة الموعد/الجلسة (slotDurationMinutes، مثال: 90 دقيقة)
+ * بزيادة منتظمة بين كل موعد والآخر، مع المعالجة الحسابية الكاملة لدوام منتصف الليل
+ */
+export function generateDynamicTimeSlots(
+  openTime: string = '03:30 م',
+  closeTime: string = '03:30 ص',
+  slotDurationMinutes: number = 90,
+  dayKey: DayKey = 'today'
+): DayTimeSlot[] {
+  const duration = Math.max(15, Math.min(240, Number(slotDurationMinutes) || 90));
+  const openParsed = parseTimeString(openTime, 15, 30);
+  const closeParsed = parseTimeString(closeTime, 3, 30);
+
+  const startMinutes = openParsed.totalMinutes;
+  const endMinutes = closeParsed.totalMinutes;
+
+  const isOvernight = startMinutes > endMinutes;
+  const totalOperationalMinutes = isOvernight
+    ? (24 * 60 - startMinutes) + endMinutes
+    : (endMinutes - startMinutes);
+
+  if (totalOperationalMinutes <= 0) {
+    return [];
+  }
+
+  const slots: DayTimeSlot[] = [];
+  let currentOffset = 0;
+
+  while (currentOffset + duration <= totalOperationalMinutes) {
+    const rawMinutes = (startMinutes + currentOffset) % (24 * 60);
+    const hour24 = Math.floor(rawMinutes / 60);
+    const minute = rawMinutes % 60;
+
+    const hour12 = hour24 % 12 || 12;
+    const hourPad = hour12.toString().padStart(2, '0');
+    const minPad = minute.toString().padStart(2, '0');
+
+    // تحديد الفترة والوصف باللغة العربية
+    let periodText = 'مساءً';
+    let periodCategory: 'morning' | 'afternoon' | 'evening' = 'evening';
+
+    if (hour24 >= 4 && hour24 < 12) {
+      periodText = 'صباحاً';
+      periodCategory = 'morning';
+    } else if (hour24 >= 12 && hour24 < 15) {
+      periodText = 'ظهراً';
+      periodCategory = 'afternoon';
+    } else if (hour24 >= 15 && hour24 < 17) {
+      periodText = 'عصراً';
+      periodCategory = 'afternoon';
+    } else if (hour24 >= 17 && hour24 < 24) {
+      periodText = 'مساءً';
+      periodCategory = 'evening';
+    } else {
+      periodText = 'صباحاً';
+      periodCategory = 'evening';
+    }
+
+    const timeLabel = `${hourPad}:${minPad} ${periodText}`;
+    const id = `dyn_${dayKey}_${hour24.toString().padStart(2, '0')}_${minPad}`;
+
+    slots.push({
+      id,
+      dayKey,
+      timeLabel,
+      period: periodCategory,
+      isAvailable: true,
+    });
+
+    currentOffset += duration;
+  }
+
+  return slots;
 }
 
-export function getDefaultTimeSlotsMap(): DayTimeSlotsMap {
+export function createDefaultTimeSlots(dayKey: DayKey = 'today', customSettings?: SalonSettings): DayTimeSlot[] {
+  const settings = customSettings || getSalonSettings();
+  const openTime = settings?.openTime || '03:30 م';
+  const closeTime = settings?.closeTime || '03:30 ص';
+  const duration = Number(settings?.slotDurationMinutes) || 90;
+
+  return generateDynamicTimeSlots(openTime, closeTime, duration, dayKey);
+}
+
+export function getDefaultTimeSlotsMap(customSettings?: SalonSettings): DayTimeSlotsMap {
+  const settings = customSettings || getSalonSettings();
   return {
-    today: createDefaultTimeSlots(),
-    tomorrow: createDefaultTimeSlots(),
-    after_tomorrow: createDefaultTimeSlots(),
+    today: createDefaultTimeSlots('today', settings),
+    tomorrow: createDefaultTimeSlots('tomorrow', settings),
+    after_tomorrow: createDefaultTimeSlots('after_tomorrow', settings),
   };
 }
 
 /**
- * جلب خريطة الأوقات لكافة الأيام ومزامنتها لحظياً مع الحجوزات الفعلية
+ * مزامنة المواعيد الديناميكية عند تحديث إعدادات العمل وحفظها محلياً
  */
-export function getAllDayTimeSlotsMap(): DayTimeSlotsMap {
+export function syncDynamicTimeSlotsWithSettings(settings: SalonSettings): DayTimeSlotsMap {
+  const newMap = getDefaultTimeSlotsMap(settings);
+  const activeBookings = getAllBookings().filter(
+    (b) => b.status === 'pending' || b.status === 'accepted' || b.status === 'approved'
+  );
+
+  (['today', 'tomorrow', 'after_tomorrow'] as DayKey[]).forEach((dayKey) => {
+    const dayKeyword = dayKey === 'today' ? 'اليوم' : dayKey === 'tomorrow' ? 'غداً' : 'بعد غد';
+    newMap[dayKey] = newMap[dayKey].map((slot) => {
+      const match = activeBookings.find(
+        (b) => b.date.includes(dayKeyword) && b.timeSlot === slot.timeLabel
+      );
+      if (match) {
+        return {
+          ...slot,
+          isAvailable: false,
+          bookedCustomerName: match.customerName,
+          bookedBookingId: match.id,
+        };
+      }
+      return slot;
+    });
+  });
+
+  saveAllDayTimeSlotsMap(newMap);
+  return newMap;
+}
+
+/**
+ * جلب خريطة الأوقات لكافة الأيام ومزامنتها لحظياً مع الحجوزات الفعلية والإعدادات الديناميكية
+ */
+export function getAllDayTimeSlotsMap(customSettings?: SalonSettings): DayTimeSlotsMap {
   try {
+    const settings = customSettings || getSalonSettings();
+    const dynamicDefaults = getDefaultTimeSlotsMap(settings);
+
     const raw = localStorage.getItem(STORAGE_KEYS.TIME_SLOTS);
     let map: DayTimeSlotsMap;
     if (raw) {
       map = JSON.parse(raw);
     } else {
-      map = getDefaultTimeSlotsMap();
+      map = dynamicDefaults;
     }
 
-    // التأكد من وجود المفاتيح الثلاثة
-    if (!map.today || !Array.isArray(map.today)) map.today = createDefaultTimeSlots();
-    if (!map.tomorrow || !Array.isArray(map.tomorrow)) map.tomorrow = createDefaultTimeSlots();
-    if (!map.after_tomorrow || !Array.isArray(map.after_tomorrow)) map.after_tomorrow = createDefaultTimeSlots();
+    // التأكد من وجود المفاتيح الثلاثة وتوافقها مع الأوقات الديناميكية المولدة
+    (['today', 'tomorrow', 'after_tomorrow'] as DayKey[]).forEach((dayKey) => {
+      const generated = dynamicDefaults[dayKey];
+      if (!map[dayKey] || !Array.isArray(map[dayKey]) || map[dayKey].length === 0) {
+        map[dayKey] = generated;
+      } else {
+        // الحفاظ على حالة المواعيد المحجوزة
+        const existingMap = new Map(map[dayKey].map((s) => [s.timeLabel, s]));
+        map[dayKey] = generated.map((genSlot) => {
+          const matchExisting = existingMap.get(genSlot.timeLabel);
+          if (matchExisting) {
+            return {
+              ...genSlot,
+              isAvailable: matchExisting.isAvailable,
+              bookedCustomerName: matchExisting.bookedCustomerName,
+              bookedBookingId: matchExisting.bookedBookingId,
+            };
+          }
+          return genSlot;
+        });
+      }
+    });
 
     // مزامنة حالة الحجوزات الفعلية المسجلة في المتجر مع هذه الأوقات
     const activeBookings = getAllBookings().filter(
-      (b) => b.status === 'pending' || b.status === 'accepted'
+      (b) => b.status === 'pending' || b.status === 'accepted' || b.status === 'approved'
     );
 
     (['today', 'tomorrow', 'after_tomorrow'] as DayKey[]).forEach((dayKey) => {
@@ -1007,7 +1155,7 @@ export function getAllDayTimeSlotsMap(): DayTimeSlotsMap {
     return map;
   } catch (err) {
     console.error('Error getting time slots map:', err);
-    return getDefaultTimeSlotsMap();
+    return getDefaultTimeSlotsMap(customSettings);
   }
 }
 
@@ -1020,9 +1168,9 @@ export function saveAllDayTimeSlotsMap(map: DayTimeSlotsMap): void {
   }
 }
 
-export function getTimeSlotsForDay(day: DayKey): DayTimeSlot[] {
-  const map = getAllDayTimeSlotsMap();
-  return map[day] || createDefaultTimeSlots();
+export function getTimeSlotsForDay(day: DayKey, customSettings?: SalonSettings): DayTimeSlot[] {
+  const map = getAllDayTimeSlotsMap(customSettings);
+  return map[day] || createDefaultTimeSlots(day, customSettings);
 }
 
 /**

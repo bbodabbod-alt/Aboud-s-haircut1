@@ -2,9 +2,9 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { BarberService, BookingSubmission, DayTimeSlot, DayKey, SalonSettings } from '../types';
 import { SERVICES as DEFAULT_SERVICES } from '../data/services';
 import { submitBooking } from '../utils/bookingApi';
-import { getTimeSlotsForDay } from '../utils/salonStore';
-import { subscribeToFirebaseTimeSlots } from '../utils/firebaseBookingService';
-import { X, Calendar, Clock, User, Phone, CheckCircle2, AlertCircle, Share2, ArrowRight, Copy, Check } from 'lucide-react';
+import { generateDynamicTimeSlots, getAllBookings } from '../utils/salonStore';
+import { subscribeToFirebaseBookings, subscribeToFirebaseTimeSlots, subscribeToFirebaseWorkingHours } from '../utils/firebaseBookingService';
+import { X, Calendar, Clock, User, Phone, CheckCircle2, AlertCircle, Share2, Copy, Check } from 'lucide-react';
 
 interface BookingModalProps {
   isOpen: boolean;
@@ -37,11 +37,18 @@ export default function BookingModal({
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [selectedDate, setSelectedDate] = useState<DayKey>('today');
-  const [selectedTimeSlot, setSelectedTimeSlot] = useState<string>('11:30 صباحاً');
+  const [selectedTimeSlot, setSelectedTimeSlot] = useState<string>('');
   const [notes, setNotes] = useState('');
-  
-  // Dynamic Time Slots from LocalStorage (Requirement 2)
-  const [daySlots, setDaySlots] = useState<DayTimeSlot[]>(() => getTimeSlotsForDay('today'));
+
+  // Working Hours (Synchronized from Firebase Settings)
+  const [workingHours, setWorkingHours] = useState({
+    openTime: settings?.workingHours?.openTime || settings?.openTime || '03:30 م',
+    closeTime: settings?.workingHours?.closeTime || settings?.closeTime || '03:30 ص',
+    slotDurationMinutes: Number(settings?.workingHours?.slotDurationMinutes || settings?.slotDurationMinutes) || 90,
+  });
+
+  // Dynamic Time Slots State
+  const [daySlots, setDaySlots] = useState<DayTimeSlot[]>([]);
 
   // UI State
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -58,14 +65,48 @@ export default function BookingModal({
     }
   }, [selectedService, availableServices]);
 
-  // فقط عند فتح النافذة لأول مرة يتم تهيئة حالة الحجز، وتجنب مسح كارت التأكيد أثناء بقاء النافذة مفتوحة
+  // Sync working hours when settings prop changes
+  useEffect(() => {
+    if (settings) {
+      setWorkingHours({
+        openTime: settings.workingHours?.openTime || settings.openTime || '03:30 م',
+        closeTime: settings.workingHours?.closeTime || settings.closeTime || '03:30 ص',
+        slotDurationMinutes: Number(settings.workingHours?.slotDurationMinutes || settings.slotDurationMinutes) || 90,
+      });
+    }
+  }, [
+    settings?.openTime,
+    settings?.closeTime,
+    settings?.slotDurationMinutes,
+    settings?.workingHours?.openTime,
+    settings?.workingHours?.closeTime,
+    settings?.workingHours?.slotDurationMinutes,
+  ]);
+
+  // اشتراك لحظي بمسار settings/workingHours في Firebase Realtime Database
+  useEffect(() => {
+    const unsubscribe = subscribeToFirebaseWorkingHours((fbHours) => {
+      if (fbHours && (fbHours.openTime || fbHours.closeTime)) {
+        setWorkingHours({
+          openTime: fbHours.openTime,
+          closeTime: fbHours.closeTime,
+          slotDurationMinutes: Number(fbHours.slotDurationMinutes) || 90,
+        });
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // إدارة ظهور نافذة التأكيد وضمان عدم إغلاقها تلقائياً بعد نجاح الحجز
   const prevIsOpenRef = useRef(false);
   useEffect(() => {
     if (isOpen && !prevIsOpenRef.current) {
+      // فتح جديد للنافذة
       setConfirmedBooking(existingBooking || null);
       setErrorMessage('');
       setIsCopied(false);
     } else if (!isOpen) {
+      // إغلاق النافذة فقط
       setConfirmedBooking(null);
       setErrorMessage('');
       setIsCopied(false);
@@ -73,55 +114,73 @@ export default function BookingModal({
     prevIsOpenRef.current = isOpen;
   }, [isOpen, existingBooking]);
 
-  // Dynamic Load Time Slots whenever selectedDate changes or LocalStorage / Firebase syncs
+  // دالة حساب وتوليد المواعيد الديناميكية (Dynamic Time Slots Generation) ومزامنتها لحظياً
   useEffect(() => {
-    const applySlots = (slots: DayTimeSlot[]) => {
-      setDaySlots(slots);
+    const { openTime, closeTime, slotDurationMinutes } = workingHours;
+    
+    // 1. توليد المواعيد الأساسية بالزيادة المحددة (مثال: 90 دقيقة) ومعالجة منتصف الليل
+    const generatedSlots = generateDynamicTimeSlots(openTime, closeTime, slotDurationMinutes, selectedDate);
 
-      // إذا كان الوقت المختار مسبقاً غير متاح أو غير موجود في هذا اليوم، يتم تحديد أول توقيت متاح تلقائياً
-      const isCurrentStillAvailable = slots.some((s) => s.timeLabel === selectedTimeSlot && s.isAvailable);
-      if (!isCurrentStillAvailable) {
-        const firstAvail = slots.find((s) => s.isAvailable);
-        if (firstAvail) {
-          setSelectedTimeSlot(firstAvail.timeLabel);
+    // 2. فحص الحجوزات الفعلية وتحديد المواعيد المحجوزة
+    const syncSlotsWithBookings = (allBookingsList: BookingSubmission[]) => {
+      const dayKeyword = selectedDate === 'today' ? 'اليوم' : selectedDate === 'tomorrow' ? 'غداً' : 'بعد غد';
+      const activeBookings = (allBookingsList || []).filter(
+        (b) => (b.status === 'pending' || b.status === 'accepted' || b.status === 'approved') && b.date.includes(dayKeyword)
+      );
+
+      const computedSlots = generatedSlots.map((slot) => {
+        const match = activeBookings.find((b) => b.timeSlot === slot.timeLabel);
+        if (match) {
+          return {
+            ...slot,
+            isAvailable: false,
+            bookedCustomerName: match.customerName,
+            bookedBookingId: match.id,
+          };
+        }
+        return slot;
+      });
+
+      setDaySlots(computedSlots);
+
+      // تحديد أول توقيت متاح تلقائياً إن لم يكن هناك توقيت محدد بعد أو كان التوقيت السابق غير متاح
+      const currentValid = computedSlots.some((s) => s.timeLabel === selectedTimeSlot && s.isAvailable);
+      if (!currentValid) {
+        const firstAvailable = computedSlots.find((s) => s.isAvailable);
+        if (firstAvailable) {
+          setSelectedTimeSlot(firstAvailable.timeLabel);
         }
       }
     };
 
-    // تحميل الحالة الأولية
-    applySlots(getTimeSlotsForDay(selectedDate));
+    // تحميل أولي مع الحجوزات المحلية
+    syncSlotsWithBookings(getAllBookings());
 
-    // الاشتراك اللحظي بقاعدة بيانات Firebase للتحديث الفوري (حجز / إنجاز) بدون ريلود
-    const unsubscribeFirebase = subscribeToFirebaseTimeSlots((updatedMap) => {
-      if (updatedMap && updatedMap[selectedDate]) {
-        applySlots(updatedMap[selectedDate]);
-      }
+    // اشتراك لحظي بقاعدة بيانات Firebase لتحديث حالة الحجوزات فوراً بدون إعادة تحميل
+    const unsubscribeBookings = subscribeToFirebaseBookings((fbBookings) => {
+      syncSlotsWithBookings(fbBookings);
     });
 
-    const handleSync = () => {
-      applySlots(getTimeSlotsForDay(selectedDate));
-    };
-
-    window.addEventListener('salon_data_synced', handleSync);
-    window.addEventListener('storage', handleSync);
-
     return () => {
-      unsubscribeFirebase();
-      window.removeEventListener('salon_data_synced', handleSync);
-      window.removeEventListener('storage', handleSync);
+      unsubscribeBookings();
     };
-  }, [selectedDate, selectedTimeSlot]);
+  }, [selectedDate, workingHours, selectedTimeSlot]);
 
   // Handle escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
-        onClose();
+        handleManualClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen]);
+
+  const handleManualClose = () => {
+    setConfirmedBooking(null);
+    onClose();
+  };
 
   if (!isOpen) return null;
 
@@ -160,8 +219,7 @@ export default function BookingModal({
     }
 
     // فحص إضافي: التأكد من أن التوقيت ما زال متاحاً
-    const currentSlots = getTimeSlotsForDay(selectedDate);
-    const chosenSlot = currentSlots.find((s) => s.timeLabel === selectedTimeSlot);
+    const chosenSlot = daySlots.find((s) => s.timeLabel === selectedTimeSlot);
     if (chosenSlot && !chosenSlot.isAvailable) {
       setErrorMessage('عذراً، هذا التوقيت تم حجزه للتو من زبون آخر أو مغلق من الإدارة، يرجى اختيار وقت آخر.');
       return;
@@ -170,7 +228,7 @@ export default function BookingModal({
     setIsSubmitting(true);
 
     try {
-      // إرسال بيانات الحجز وحفظها ومزامنتها وترميز الوقت كمحجوز
+      // إرسال بيانات الحجز وحفظها ومزامنتها وترميز الوقت كمحجوز في Firebase
       const result = await submitBooking({
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
@@ -182,22 +240,24 @@ export default function BookingModal({
         notes: notes.trim(),
       });
 
-      if (result.success) {
+      if (result.success && result.booking) {
+        // تفعيل عرض كارت "تم تأكيد موعدك بنجاح" فور نجاح عملية الكتابة في Firebase
         setConfirmedBooking(result.booking);
+        // إشعار التطبيق دون إغلاق الـ Modal
         onBookingSuccess(result.booking);
       } else {
         setErrorMessage('تعذر إتمام الحجز، يرجى المحاولة مرة أخرى');
       }
     } catch (err) {
-      console.error(err);
+      console.error('Error submitting booking:', err);
       setErrorMessage('حدث خطأ أثناء حفظ الحجز، يرجى المحاولة مرة أخرى');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleWhatsAppShare = () => {
-    if (!confirmedBooking) return;
+  const whatsappUrl = useMemo(() => {
+    if (!confirmedBooking) return '#';
     const text = encodeURIComponent(
       `مرحباً صالون حلاقة عبود 💈\nتم تأكيد حجزي بالمعلومات التالية:\n\n` +
       `▪ رمز الحجز: ${confirmedBooking.bookingCode}\n` +
@@ -209,8 +269,8 @@ export default function BookingModal({
       `يرجى تأكيد الحجز عند استلام الرسالة، شكراً لكم!`
     );
     const whatsappNum = (settings?.whatsapp || '9647712818522').replace(/\D/g, '');
-    window.open(`https://wa.me/${whatsappNum}?text=${text}`, '_blank');
-  };
+    return `https://wa.me/${whatsappNum}?text=${text}`;
+  }, [confirmedBooking, settings?.whatsapp]);
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -232,7 +292,7 @@ export default function BookingModal({
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleManualClose}
             className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -320,16 +380,19 @@ export default function BookingModal({
 
               {/* Action Buttons */}
               <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                <button
-                  onClick={handleWhatsAppShare}
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/25 active:scale-98"
                 >
                   <Share2 className="w-4 h-4" />
                   <span>إرسال تفاصيل الموعد عبر واتساب</span>
-                </button>
+                </a>
 
                 <button
-                  onClick={onClose}
+                  type="button"
+                  onClick={handleManualClose}
                   className="py-3 px-6 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-semibold text-sm rounded-xl transition-colors cursor-pointer border border-neutral-700"
                 >
                   إغلاق ومتابعة التصفح
@@ -338,6 +401,7 @@ export default function BookingModal({
 
               <div className="pt-1">
                 <button
+                  type="button"
                   onClick={() => setConfirmedBooking(null)}
                   className="text-xs text-amber-400/80 hover:text-amber-300 underline underline-offset-4 cursor-pointer"
                 >

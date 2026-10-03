@@ -12,7 +12,7 @@ export interface BarberService {
   highlighted?: boolean;
 }
 
-export type BookingStatus = 'pending' | 'accepted' | 'rejected' | 'completed' | 'cancelled';
+export type BookingStatus = 'pending' | 'accepted' | 'approved' | 'rejected' | 'completed' | 'cancelled';
 
 export interface BookingSubmission {
   id: string;
@@ -33,6 +33,7 @@ export type DayKey = 'today' | 'tomorrow' | 'after_tomorrow';
 
 export interface DayTimeSlot {
   id: string;
+  dayKey?: DayKey;
   timeLabel: string;
   period: 'morning' | 'afternoon' | 'evening';
   isAvailable: boolean;
@@ -72,6 +73,13 @@ export interface SalonStatsHighlights {
   sterilizationPercentLabel: string;
 }
 
+export interface WorkingHoursConfig {
+  openTime: string;
+  closeTime: string;
+  slotDurationMinutes: number;
+  updatedAt?: string;
+}
+
 export interface SalonSettings {
   salonName: string;
   // Hero / Brand Section
@@ -84,6 +92,8 @@ export interface SalonSettings {
   manualShopStatus: 'auto' | 'open' | 'closed';
   openTime: string;
   closeTime: string;
+  slotDurationMinutes?: number;
+  workingHours?: WorkingHoursConfig;
   // Contact & Social & Location
   phone: string;
   whatsapp: string;
