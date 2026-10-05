@@ -3,8 +3,9 @@ import { BarberService, BookingSubmission, DayTimeSlot, DayKey, SalonSettings } 
 import { SERVICES as DEFAULT_SERVICES } from '../data/services';
 import { submitBooking } from '../utils/bookingApi';
 import { generateDynamicTimeSlots, getAllBookings } from '../utils/salonStore';
-import { subscribeToFirebaseBookings, subscribeToFirebaseTimeSlots, subscribeToFirebaseWorkingHours } from '../utils/firebaseBookingService';
+import { subscribeToFirebaseBookings, subscribeToFirebaseWorkingHours } from '../utils/firebaseBookingService';
 import { X, Calendar, Clock, User, Phone, CheckCircle2, AlertCircle, Share2, Copy, Check } from 'lucide-react';
+import BookingModalErrorBoundary from './BookingModalErrorBoundary';
 
 interface BookingModalProps {
   isOpen: boolean;
@@ -16,7 +17,7 @@ interface BookingModalProps {
   settings?: SalonSettings;
 }
 
-export default function BookingModal({
+function BookingModalInner({
   isOpen,
   onClose,
   selectedService,
@@ -25,30 +26,40 @@ export default function BookingModal({
   services = DEFAULT_SERVICES,
   settings,
 }: BookingModalProps) {
-  // ترتيب الخدمات تنازلياً حسب السعر (من الأعلى سعراً إلى الأقل سعراً)
+  // ترتيب الخدمات تنازلياً مع حماية كاملة ضد القيم غير المعرفة
   const availableServices = useMemo(() => {
-    return (services && services.length > 0 ? services : DEFAULT_SERVICES)
+    const list = Array.isArray(services) && services.length > 0 ? services : DEFAULT_SERVICES;
+    return list
+      .filter((s): s is BarberService => Boolean(s && s.id))
       .slice()
-      .sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
+      .sort((a, b) => (Number(b?.price) || 0) - (Number(a?.price) || 0));
   }, [services]);
 
   // Form State
-  const [serviceId, setServiceId] = useState<string>(selectedService?.id || availableServices[0].id);
+  const initialServiceId = selectedService?.id || availableServices[0]?.id || DEFAULT_SERVICES[0]?.id || '1';
+  const [serviceId, setServiceId] = useState<string>(initialServiceId);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [selectedDate, setSelectedDate] = useState<DayKey>('today');
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<string>('');
   const [notes, setNotes] = useState('');
 
-  // Working Hours (Synchronized from Firebase Settings)
-  const [workingHours, setWorkingHours] = useState({
-    openTime: settings?.workingHours?.openTime || settings?.openTime || '03:30 م',
-    closeTime: settings?.workingHours?.closeTime || settings?.closeTime || '03:30 ص',
-    slotDurationMinutes: Number(settings?.workingHours?.slotDurationMinutes || settings?.slotDurationMinutes) || 90,
-  });
+  // أوقات العمل من Firebase أو الإعدادات العامة مع قيم افتراضية صارمة
+  const [fbWorkingHours, setFbWorkingHours] = useState<{
+    openTime?: string;
+    closeTime?: string;
+    slotDurationMinutes?: number;
+  } | null>(null);
+
+  const effectiveOpenTime = fbWorkingHours?.openTime || settings?.workingHours?.openTime || settings?.openTime || '03:30 م';
+  const effectiveCloseTime = fbWorkingHours?.closeTime || settings?.workingHours?.closeTime || settings?.closeTime || '03:30 ص';
+  const effectiveDuration = Number(
+    fbWorkingHours?.slotDurationMinutes || settings?.workingHours?.slotDurationMinutes || settings?.slotDurationMinutes
+  ) || 90;
 
   // Dynamic Time Slots State
   const [daySlots, setDaySlots] = useState<DayTimeSlot[]>([]);
+  const [isLoadingSlots, setIsLoadingSlots] = useState<boolean>(true);
 
   // UI State
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -56,57 +67,42 @@ export default function BookingModal({
   const [confirmedBooking, setConfirmedBooking] = useState<BookingSubmission | null>(existingBooking || null);
   const [isCopied, setIsCopied] = useState(false);
 
-  // Sync service when prop changes
+  // Sync service when selectedService prop changes
   useEffect(() => {
-    if (selectedService) {
+    if (selectedService?.id) {
       setServiceId(selectedService.id);
-    } else if (availableServices.length > 0) {
+    } else if (availableServices.length > 0 && !serviceId) {
       setServiceId(availableServices[0].id);
     }
-  }, [selectedService, availableServices]);
+  }, [selectedService, availableServices, serviceId]);
 
-  // Sync working hours when settings prop changes
+  // اشتراك لحظي بمسار settings/workingHours في Firebase
   useEffect(() => {
-    if (settings) {
-      setWorkingHours({
-        openTime: settings.workingHours?.openTime || settings.openTime || '03:30 م',
-        closeTime: settings.workingHours?.closeTime || settings.closeTime || '03:30 ص',
-        slotDurationMinutes: Number(settings.workingHours?.slotDurationMinutes || settings.slotDurationMinutes) || 90,
+    let isMounted = true;
+    try {
+      const unsubscribe = subscribeToFirebaseWorkingHours((fbHours) => {
+        if (!isMounted) return;
+        if (fbHours && (fbHours.openTime || fbHours.closeTime)) {
+          setFbWorkingHours(fbHours);
+        }
       });
+      return () => {
+        isMounted = false;
+        unsubscribe();
+      };
+    } catch (err) {
+      console.error('Error subscribing to working hours:', err);
     }
-  }, [
-    settings?.openTime,
-    settings?.closeTime,
-    settings?.slotDurationMinutes,
-    settings?.workingHours?.openTime,
-    settings?.workingHours?.closeTime,
-    settings?.workingHours?.slotDurationMinutes,
-  ]);
-
-  // اشتراك لحظي بمسار settings/workingHours في Firebase Realtime Database
-  useEffect(() => {
-    const unsubscribe = subscribeToFirebaseWorkingHours((fbHours) => {
-      if (fbHours && (fbHours.openTime || fbHours.closeTime)) {
-        setWorkingHours({
-          openTime: fbHours.openTime,
-          closeTime: fbHours.closeTime,
-          slotDurationMinutes: Number(fbHours.slotDurationMinutes) || 90,
-        });
-      }
-    });
-    return () => unsubscribe();
   }, []);
 
   // إدارة ظهور نافذة التأكيد وضمان عدم إغلاقها تلقائياً بعد نجاح الحجز
   const prevIsOpenRef = useRef(false);
   useEffect(() => {
     if (isOpen && !prevIsOpenRef.current) {
-      // فتح جديد للنافذة
       setConfirmedBooking(existingBooking || null);
       setErrorMessage('');
       setIsCopied(false);
     } else if (!isOpen) {
-      // إغلاق النافذة فقط
       setConfirmedBooking(null);
       setErrorMessage('');
       setIsCopied(false);
@@ -114,57 +110,93 @@ export default function BookingModal({
     prevIsOpenRef.current = isOpen;
   }, [isOpen, existingBooking]);
 
-  // دالة حساب وتوليد المواعيد الديناميكية (Dynamic Time Slots Generation) ومزامنتها لحظياً
+  // دالة حساب وتوليد المواعيد الديناميكية ومزامنتها مع الحجوزات
   useEffect(() => {
-    const { openTime, closeTime, slotDurationMinutes } = workingHours;
-    
-    // 1. توليد المواعيد الأساسية بالزيادة المحددة (مثال: 90 دقيقة) ومعالجة منتصف الليل
-    const generatedSlots = generateDynamicTimeSlots(openTime, closeTime, slotDurationMinutes, selectedDate);
+    if (!isOpen) return;
 
-    // 2. فحص الحجوزات الفعلية وتحديد المواعيد المحجوزة
-    const syncSlotsWithBookings = (allBookingsList: BookingSubmission[]) => {
-      const dayKeyword = selectedDate === 'today' ? 'اليوم' : selectedDate === 'tomorrow' ? 'غداً' : 'بعد غد';
-      const activeBookings = (allBookingsList || []).filter(
-        (b) => (b.status === 'pending' || b.status === 'accepted' || b.status === 'approved') && b.date.includes(dayKeyword)
+    let isMounted = true;
+    setIsLoadingSlots(true);
+
+    try {
+      // 1. توليد المواعيد الأساسية بالزيادة المحددة ومعالجة منتصف الليل
+      const baseGenerated = generateDynamicTimeSlots(
+        effectiveOpenTime,
+        effectiveCloseTime,
+        effectiveDuration,
+        selectedDate
       );
 
-      const computedSlots = generatedSlots.map((slot) => {
-        const match = activeBookings.find((b) => b.timeSlot === slot.timeLabel);
-        if (match) {
-          return {
-            ...slot,
-            isAvailable: false,
-            bookedCustomerName: match.customerName,
-            bookedBookingId: match.id,
-          };
+      const syncWithBookings = (allBookingsList: BookingSubmission[]) => {
+        if (!isMounted) return;
+
+        try {
+          const dayKeyword = selectedDate === 'today' ? 'اليوم' : selectedDate === 'tomorrow' ? 'غداً' : 'بعد غد';
+          
+          const safeBookings = Array.isArray(allBookingsList)
+            ? allBookingsList.filter(
+                (b): b is BookingSubmission =>
+                  Boolean(
+                    b &&
+                    (b.status === 'pending' || b.status === 'accepted' || b.status === 'approved') &&
+                    typeof b.date === 'string' &&
+                    b.date.includes(dayKeyword)
+                  )
+              )
+            : [];
+
+          const computed = (baseGenerated || []).map((slot) => {
+            if (!slot) return slot;
+            const match = safeBookings.find((b) => b.timeSlot === slot.timeLabel);
+            if (match) {
+              return {
+                ...slot,
+                isAvailable: false,
+                bookedCustomerName: match.customerName || 'محجوز',
+                bookedBookingId: match.id,
+              };
+            }
+            return slot;
+          });
+
+          setDaySlots(computed);
+          setIsLoadingSlots(false);
+
+          // تحديد أول توقيت متاح تلقائياً إن لم يكن التوقيت الحالي متاحاً
+          setSelectedTimeSlot((currentSelected) => {
+            const isStillAvailable = computed.some((s) => s && s.timeLabel === currentSelected && s.isAvailable);
+            if (isStillAvailable) return currentSelected;
+            const firstAvail = computed.find((s) => s && s.isAvailable);
+            return firstAvail ? firstAvail.timeLabel : '';
+          });
+        } catch (innerErr) {
+          console.error('Error syncing slots with bookings:', innerErr);
+          if (isMounted) {
+            setDaySlots(baseGenerated || []);
+            setIsLoadingSlots(false);
+          }
         }
-        return slot;
+      };
+
+      // مزامنة أولية مع التخزين المحلي
+      syncWithBookings(getAllBookings());
+
+      // اشتراك لحظي مع Firebase
+      const unsubscribe = subscribeToFirebaseBookings((fbBookings) => {
+        syncWithBookings(fbBookings);
       });
 
-      setDaySlots(computedSlots);
-
-      // تحديد أول توقيت متاح تلقائياً إن لم يكن هناك توقيت محدد بعد أو كان التوقيت السابق غير متاح
-      const currentValid = computedSlots.some((s) => s.timeLabel === selectedTimeSlot && s.isAvailable);
-      if (!currentValid) {
-        const firstAvailable = computedSlots.find((s) => s.isAvailable);
-        if (firstAvailable) {
-          setSelectedTimeSlot(firstAvailable.timeLabel);
-        }
+      return () => {
+        isMounted = false;
+        unsubscribe();
+      };
+    } catch (err) {
+      console.error('Error in slots generation effect:', err);
+      if (isMounted) {
+        setDaySlots([]);
+        setIsLoadingSlots(false);
       }
-    };
-
-    // تحميل أولي مع الحجوزات المحلية
-    syncSlotsWithBookings(getAllBookings());
-
-    // اشتراك لحظي بقاعدة بيانات Firebase لتحديث حالة الحجوزات فوراً بدون إعادة تحميل
-    const unsubscribeBookings = subscribeToFirebaseBookings((fbBookings) => {
-      syncSlotsWithBookings(fbBookings);
-    });
-
-    return () => {
-      unsubscribeBookings();
-    };
-  }, [selectedDate, workingHours, selectedTimeSlot]);
+    }
+  }, [isOpen, selectedDate, effectiveOpenTime, effectiveCloseTime, effectiveDuration]);
 
   // Handle escape key
   useEffect(() => {
@@ -184,9 +216,9 @@ export default function BookingModal({
 
   if (!isOpen) return null;
 
-  const currentService = availableServices.find(s => s.id === serviceId) || availableServices[0];
+  const currentService: BarberService = availableServices.find((s) => s.id === serviceId) || availableServices[0] || DEFAULT_SERVICES[0];
 
-  // Helper date strings
+  // Helper date strings with fallback
   const todayDate = new Date();
   const tomorrowDate = new Date(todayDate);
   tomorrowDate.setDate(tomorrowDate.getDate() + 1);
@@ -199,7 +231,7 @@ export default function BookingModal({
     { id: 'after_tomorrow', label: 'بعد غد', dateStr: afterTomorrowDate.toLocaleDateString('ar-IQ', { weekday: 'long', day: 'numeric', month: 'short' }) },
   ];
 
-  const activeDateOption = dateOptions.find(d => d.id === selectedDate) || dateOptions[0];
+  const activeDateOption = dateOptions.find((d) => d.id === selectedDate) || dateOptions[0];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -219,7 +251,7 @@ export default function BookingModal({
     }
 
     // فحص إضافي: التأكد من أن التوقيت ما زال متاحاً
-    const chosenSlot = daySlots.find((s) => s.timeLabel === selectedTimeSlot);
+    const chosenSlot = daySlots.find((s) => s && s.timeLabel === selectedTimeSlot);
     if (chosenSlot && !chosenSlot.isAvailable) {
       setErrorMessage('عذراً، هذا التوقيت تم حجزه للتو من زبون آخر أو مغلق من الإدارة، يرجى اختيار وقت آخر.');
       return;
@@ -240,7 +272,7 @@ export default function BookingModal({
         notes: notes.trim(),
       });
 
-      if (result.success && result.booking) {
+      if (result && result.success && result.booking) {
         // تفعيل عرض كارت "تم تأكيد موعدك بنجاح" فور نجاح عملية الكتابة في Firebase
         setConfirmedBooking(result.booking);
         // إشعار التطبيق دون إغلاق الـ Modal
@@ -292,6 +324,7 @@ export default function BookingModal({
             </div>
           </div>
           <button
+            type="button"
             onClick={handleManualClose}
             className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
           >
@@ -328,7 +361,9 @@ export default function BookingModal({
                     <button
                       type="button"
                       onClick={() => {
-                        navigator.clipboard?.writeText(confirmedBooking.bookingCode);
+                        if (navigator.clipboard?.writeText) {
+                          navigator.clipboard.writeText(confirmedBooking.bookingCode);
+                        }
                         setIsCopied(true);
                         setTimeout(() => setIsCopied(false), 2000);
                       }}
@@ -373,7 +408,7 @@ export default function BookingModal({
                 <div className="flex items-center justify-between text-xs pt-3 border-t border-neutral-800">
                   <span className="text-neutral-400 font-medium">السعر المقدر:</span>
                   <span className="text-emerald-400 font-bold font-mono text-base">
-                    {confirmedBooking.servicePrice.toLocaleString('en-US')} د.ع
+                    {(Number(confirmedBooking.servicePrice) || 0).toLocaleString('en-US')} د.ع
                   </span>
                 </div>
               </div>
@@ -447,7 +482,7 @@ export default function BookingModal({
                           )}
                         </div>
                         <div className="text-left font-mono font-bold text-amber-400 text-xs">
-                          {service.priceFormatted}
+                          {service.priceFormatted || `${(Number(service.price) || 0).toLocaleString('en-US')} د.ع`}
                         </div>
                       </button>
                     );
@@ -455,7 +490,7 @@ export default function BookingModal({
                 </div>
               </div>
 
-              {/* 2. Choose Day (اليوم، غداً، بعد غد - Dynamic from LocalStorage) */}
+              {/* 2. Choose Day */}
               <div>
                 <label className="block text-xs font-semibold text-neutral-300 mb-1.5 flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-amber-400" />
@@ -483,7 +518,7 @@ export default function BookingModal({
                 </div>
               </div>
 
-              {/* 3. Available Barber Times Slots (Dynamic & Real-time with "محجوز" state - Requirement 2) */}
+              {/* 3. Available Barber Times Slots (Dynamic & Real-time with Loading Spinner) */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
@@ -491,49 +526,61 @@ export default function BookingModal({
                     <span>الأوقات المتاحة للحلاق ({activeDateOption.label}):</span>
                   </label>
                   <span className="text-[11px] text-neutral-400">
-                    {daySlots.filter(s => s.isAvailable).length} وقت متاح
+                    {daySlots.filter((s) => s && s.isAvailable).length} وقت متاح
                   </span>
                 </div>
 
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-52 overflow-y-auto p-1.5 border border-neutral-800 rounded-xl bg-neutral-900/60">
-                  {daySlots.map((slot) => {
-                    const isSelected = selectedTimeSlot === slot.timeLabel;
-                    const isBooked = !slot.isAvailable;
+                {isLoadingSlots ? (
+                  <div className="py-8 flex flex-col items-center justify-center gap-2.5 text-neutral-400 border border-neutral-800 rounded-xl bg-neutral-900/60">
+                    <div className="w-6 h-6 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                    <span className="text-xs font-medium">جاري تحميل المواعيد المتاحة...</span>
+                  </div>
+                ) : daySlots.length === 0 ? (
+                  <div className="py-6 px-4 text-center text-xs text-neutral-400 bg-neutral-900/40 rounded-xl border border-neutral-800">
+                    لا توجد مواعيد متاحة في هذا اليوم حالياً، يرجى اختيار يوم آخر.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-52 overflow-y-auto p-1.5 border border-neutral-800 rounded-xl bg-neutral-900/60">
+                    {daySlots.map((slot) => {
+                      if (!slot) return null;
+                      const isSelected = selectedTimeSlot === slot.timeLabel;
+                      const isBooked = !slot.isAvailable;
 
-                    return (
-                      <button
-                        key={slot.id}
-                        type="button"
-                        disabled={isBooked}
-                        onClick={() => {
-                          if (!isBooked) {
-                            setSelectedTimeSlot(slot.timeLabel);
-                          }
-                        }}
-                        className={`p-2.5 rounded-xl text-xs font-medium transition-all text-center flex flex-col items-center justify-center min-h-[54px] ${
-                          isBooked
-                            ? 'bg-neutral-950/80 text-neutral-500 border border-neutral-900 cursor-not-allowed select-none opacity-60'
-                            : isSelected
-                            ? 'bg-amber-400 text-neutral-950 font-bold shadow-md shadow-amber-400/20 border border-amber-300 cursor-pointer scale-102'
-                            : 'bg-neutral-800/80 text-neutral-200 border border-neutral-700/60 hover:border-amber-400/50 hover:text-white cursor-pointer'
-                        }`}
-                      >
-                        <span className={`block font-mono ${isBooked ? 'line-through text-neutral-500' : ''}`}>
-                          {slot.timeLabel}
-                        </span>
-                        
-                        {/* Status Label (محجوز باللون الرمادي والأحمر / متاح) */}
-                        {isBooked ? (
-                          <span className="text-[10px] font-bold text-rose-500 mt-0.5">محجوز</span>
-                        ) : (
-                          <span className={`text-[9px] mt-0.5 ${isSelected ? 'text-neutral-900 font-bold' : 'text-emerald-400/80'}`}>
-                            متاح
+                      return (
+                        <button
+                          key={slot.id}
+                          type="button"
+                          disabled={isBooked}
+                          onClick={() => {
+                            if (!isBooked) {
+                              setSelectedTimeSlot(slot.timeLabel);
+                            }
+                          }}
+                          className={`p-2.5 rounded-xl text-xs font-medium transition-all text-center flex flex-col items-center justify-center min-h-[54px] ${
+                            isBooked
+                              ? 'bg-neutral-950/80 text-neutral-500 border border-neutral-900 cursor-not-allowed select-none opacity-60'
+                              : isSelected
+                              ? 'bg-amber-400 text-neutral-950 font-bold shadow-md shadow-amber-400/20 border border-amber-300 cursor-pointer scale-102'
+                              : 'bg-neutral-800/80 text-neutral-200 border border-neutral-700/60 hover:border-amber-400/50 hover:text-white cursor-pointer'
+                          }`}
+                        >
+                          <span className={`block font-mono ${isBooked ? 'line-through text-neutral-500' : ''}`}>
+                            {slot.timeLabel}
                           </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
+                          
+                          {/* Status Label (محجوز / متاح) */}
+                          {isBooked ? (
+                            <span className="text-[10px] font-bold text-rose-500 mt-0.5">محجوز</span>
+                          ) : (
+                            <span className={`text-[9px] mt-0.5 ${isSelected ? 'text-neutral-900 font-bold' : 'text-emerald-400/80'}`}>
+                              متاح
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* 4. Customer Info Fields */}
@@ -588,7 +635,7 @@ export default function BookingModal({
               <div className="pt-2">
                 <button
                   type="submit"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isLoadingSlots || !selectedTimeSlot}
                   className="w-full py-3.5 px-6 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 hover:from-amber-300 hover:to-amber-400 text-neutral-950 font-bold text-sm rounded-xl shadow-lg shadow-amber-500/20 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   <Clock className="w-4 h-4" />
@@ -602,5 +649,13 @@ export default function BookingModal({
 
       </div>
     </div>
+  );
+}
+
+export default function BookingModal(props: BookingModalProps) {
+  return (
+    <BookingModalErrorBoundary onClose={props.onClose}>
+      <BookingModalInner {...props} />
+    </BookingModalErrorBoundary>
   );
 }

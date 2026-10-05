@@ -968,84 +968,114 @@ export function triggerBrowserNotificationIfPermitted(title: string, body: strin
  * بزيادة منتظمة بين كل موعد والآخر، مع المعالجة الحسابية الكاملة لدوام منتصف الليل
  */
 export function generateDynamicTimeSlots(
-  openTime: string = '03:30 م',
-  closeTime: string = '03:30 ص',
-  slotDurationMinutes: number = 90,
+  openTime?: string | null,
+  closeTime?: string | null,
+  slotDurationMinutes?: number | string | null,
   dayKey: DayKey = 'today'
 ): DayTimeSlot[] {
-  const duration = Math.max(15, Math.min(240, Number(slotDurationMinutes) || 90));
-  const openParsed = parseTimeString(openTime, 15, 30);
-  const closeParsed = parseTimeString(closeTime, 3, 30);
+  try {
+    // 1. فحص وجود أوقات العمل وتطبيق القيم الافتراضية الصارمة (Null Safety)
+    const safeOpenTime = (typeof openTime === 'string' && openTime.trim().length > 0)
+      ? openTime.trim()
+      : '03:30 م';
 
-  const startMinutes = openParsed.totalMinutes;
-  const endMinutes = closeParsed.totalMinutes;
+    const safeCloseTime = (typeof closeTime === 'string' && closeTime.trim().length > 0)
+      ? closeTime.trim()
+      : '03:30 ص';
 
-  const isOvernight = startMinutes > endMinutes;
-  const totalOperationalMinutes = isOvernight
-    ? (24 * 60 - startMinutes) + endMinutes
-    : (endMinutes - startMinutes);
+    const parsedDuration = Number(slotDurationMinutes);
+    const duration = (!isNaN(parsedDuration) && parsedDuration >= 15 && parsedDuration <= 240)
+      ? parsedDuration
+      : 90;
 
-  if (totalOperationalMinutes <= 0) {
-    return [];
-  }
+    const safeDayKey: DayKey = (dayKey === 'tomorrow' || dayKey === 'after_tomorrow')
+      ? dayKey
+      : 'today';
 
-  const slots: DayTimeSlot[] = [];
-  let currentOffset = 0;
+    const openParsed = parseTimeString(safeOpenTime, 15, 30);
+    const closeParsed = parseTimeString(safeCloseTime, 3, 30);
 
-  while (currentOffset + duration <= totalOperationalMinutes) {
-    const rawMinutes = (startMinutes + currentOffset) % (24 * 60);
-    const hour24 = Math.floor(rawMinutes / 60);
-    const minute = rawMinutes % 60;
+    const startMinutes = Number(openParsed?.totalMinutes ?? 930);
+    const endMinutes = Number(closeParsed?.totalMinutes ?? 210);
 
-    const hour12 = hour24 % 12 || 12;
-    const hourPad = hour12.toString().padStart(2, '0');
-    const minPad = minute.toString().padStart(2, '0');
+    const isOvernight = startMinutes > endMinutes;
+    const totalOperationalMinutes = isOvernight
+      ? (24 * 60 - startMinutes) + endMinutes
+      : (endMinutes - startMinutes);
 
-    // تحديد الفترة والوصف باللغة العربية
-    let periodText = 'مساءً';
-    let periodCategory: 'morning' | 'afternoon' | 'evening' = 'evening';
-
-    if (hour24 >= 4 && hour24 < 12) {
-      periodText = 'صباحاً';
-      periodCategory = 'morning';
-    } else if (hour24 >= 12 && hour24 < 15) {
-      periodText = 'ظهراً';
-      periodCategory = 'afternoon';
-    } else if (hour24 >= 15 && hour24 < 17) {
-      periodText = 'عصراً';
-      periodCategory = 'afternoon';
-    } else if (hour24 >= 17 && hour24 < 24) {
-      periodText = 'مساءً';
-      periodCategory = 'evening';
-    } else {
-      periodText = 'صباحاً';
-      periodCategory = 'evening';
+    if (isNaN(totalOperationalMinutes) || totalOperationalMinutes <= 0) {
+      return [];
     }
 
-    const timeLabel = `${hourPad}:${minPad} ${periodText}`;
-    const id = `dyn_${dayKey}_${hour24.toString().padStart(2, '0')}_${minPad}`;
+    const slots: DayTimeSlot[] = [];
+    let currentOffset = 0;
+    let safetyCounter = 0;
+    const maxSlots = 48; // حماية ضد أي حلقة لانهائية
 
-    slots.push({
-      id,
-      dayKey,
-      timeLabel,
-      period: periodCategory,
-      isAvailable: true,
-    });
+    while (currentOffset + duration <= totalOperationalMinutes && safetyCounter < maxSlots) {
+      safetyCounter++;
+      const rawMinutes = (startMinutes + currentOffset) % (24 * 60);
+      const hour24 = Math.floor(rawMinutes / 60);
+      const minute = rawMinutes % 60;
 
-    currentOffset += duration;
+      const hour12 = hour24 % 12 || 12;
+      const hourPad = hour12.toString().padStart(2, '0');
+      const minPad = minute.toString().padStart(2, '0');
+
+      // تحديد الفترة والوصف باللغة العربية
+      let periodText = 'مساءً';
+      let periodCategory: 'morning' | 'afternoon' | 'evening' = 'evening';
+
+      if (hour24 >= 4 && hour24 < 12) {
+        periodText = 'صباحاً';
+        periodCategory = 'morning';
+      } else if (hour24 >= 12 && hour24 < 15) {
+        periodText = 'ظهراً';
+        periodCategory = 'afternoon';
+      } else if (hour24 >= 15 && hour24 < 17) {
+        periodText = 'عصراً';
+        periodCategory = 'afternoon';
+      } else if (hour24 >= 17 && hour24 < 24) {
+        periodText = 'مساءً';
+        periodCategory = 'evening';
+      } else {
+        periodText = 'ليلاً';
+        periodCategory = 'evening';
+      }
+
+      const timeLabel = `${hourPad}:${minPad} ${periodText}`;
+      const id = `dyn_${safeDayKey}_${hour24.toString().padStart(2, '0')}_${minPad}`;
+
+      slots.push({
+        id,
+        dayKey: safeDayKey,
+        timeLabel,
+        period: periodCategory,
+        isAvailable: true,
+      });
+
+      currentOffset += duration;
+    }
+
+    return slots;
+  } catch (err) {
+    console.error('Error generating dynamic time slots:', err);
+    return [];
   }
-
-  return slots;
 }
 
 export function createDefaultTimeSlots(dayKey: DayKey = 'today', customSettings?: SalonSettings): DayTimeSlot[] {
-  const settings = customSettings || getSalonSettings();
-  const openTime = settings?.openTime || '03:30 م';
-  const closeTime = settings?.closeTime || '03:30 ص';
-  const duration = Number(settings?.slotDurationMinutes) || 90;
+  try {
+    const settings = customSettings || getSalonSettings();
+    const openTime = settings?.workingHours?.openTime || settings?.openTime || '03:30 م';
+    const closeTime = settings?.workingHours?.closeTime || settings?.closeTime || '03:30 ص';
+    const duration = Number(settings?.workingHours?.slotDurationMinutes || settings?.slotDurationMinutes) || 90;
 
-  return generateDynamicTimeSlots(openTime, closeTime, duration, dayKey);
+    return generateDynamicTimeSlots(openTime, closeTime, duration, dayKey);
+  } catch (err) {
+    console.error('Error in createDefaultTimeSlots:', err);
+    return [];
+  }
 }
 
 export function getDefaultTimeSlotsMap(customSettings?: SalonSettings): DayTimeSlotsMap {

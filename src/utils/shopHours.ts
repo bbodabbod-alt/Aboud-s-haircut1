@@ -25,61 +25,77 @@ export interface ShopStatusResult {
  * يدعم مثلاً: "3:00 م", "03:00 م", "2:00 ص", "02:00 ص", "15:00", "02:00", "3:00 PM", "2:00 AM"
  */
 export function parseTimeString(
-  timeStr: string,
+  timeStr: string | null | undefined,
   defaultHour: number = 15,
   defaultMinute: number = 0
 ): { hour: number; minute: number; totalMinutes: number } {
-  if (!timeStr || typeof timeStr !== 'string') {
+  try {
+    if (!timeStr || typeof timeStr !== 'string') {
+      const safeH = isNaN(defaultHour) ? 15 : Math.max(0, Math.min(23, defaultHour));
+      const safeM = isNaN(defaultMinute) ? 0 : Math.max(0, Math.min(59, defaultMinute));
+      return {
+        hour: safeH,
+        minute: safeM,
+        totalMinutes: safeH * 60 + safeM,
+      };
+    }
+
+    // تحويل الأرقام العربية المشرقية (٠-٩) إلى أرقام قياسية (0-9)
+    const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    let cleanStr = timeStr.trim();
+    arabicNumerals.forEach((num, idx) => {
+      cleanStr = cleanStr.split(num).join(idx.toString());
+    });
+
+    const normalized = cleanStr.toLowerCase();
+    const isPM = normalized.includes('م') || normalized.includes('مساء') || normalized.includes('pm');
+    const isAM = normalized.includes('ص') || normalized.includes('صباح') || normalized.includes('am');
+
+    let hour = isNaN(defaultHour) ? 15 : defaultHour;
+    let minute = isNaN(defaultMinute) ? 0 : defaultMinute;
+
+    // استخراج الساعة والدقيقة بنمط HH:MM أو HH.MM
+    const matchWithMin = normalized.match(/(\d{1,2})[:.](\d{1,2})/);
+    if (matchWithMin) {
+      const parsedH = parseInt(matchWithMin[1], 10);
+      const parsedM = parseInt(matchWithMin[2], 10);
+      hour = isNaN(parsedH) ? hour : parsedH;
+      minute = isNaN(parsedM) ? minute : parsedM;
+    } else {
+      const matchHourOnly = normalized.match(/\d{1,2}/);
+      if (matchHourOnly) {
+        const parsedH = parseInt(matchHourOnly[0], 10);
+        hour = isNaN(parsedH) ? hour : parsedH;
+        minute = 0;
+      }
+    }
+
+    // التحويل من نظام 12 ساعة إلى نظام 24 ساعة
+    if (isPM && hour < 12) {
+      hour += 12;
+    } else if (isAM && hour === 12) {
+      hour = 0;
+    }
+
+    // ضبط الحدود
+    hour = Math.max(0, Math.min(23, isNaN(hour) ? defaultHour : hour));
+    minute = Math.max(0, Math.min(59, isNaN(minute) ? defaultMinute : minute));
+
     return {
-      hour: defaultHour,
-      minute: defaultMinute,
-      totalMinutes: defaultHour * 60 + defaultMinute,
+      hour,
+      minute,
+      totalMinutes: hour * 60 + minute,
+    };
+  } catch (err) {
+    console.error('Error in parseTimeString:', err);
+    const safeH = isNaN(defaultHour) ? 15 : Math.max(0, Math.min(23, defaultHour));
+    const safeM = isNaN(defaultMinute) ? 0 : Math.max(0, Math.min(59, defaultMinute));
+    return {
+      hour: safeH,
+      minute: safeM,
+      totalMinutes: safeH * 60 + safeM,
     };
   }
-
-  // تحويل الأرقام العربية المشرقية (٠-٩) إلى أرقام قياسية (0-9)
-  const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-  let cleanStr = timeStr.trim();
-  arabicNumerals.forEach((num, idx) => {
-    cleanStr = cleanStr.split(num).join(idx.toString());
-  });
-
-  const normalized = cleanStr.toLowerCase();
-  const isPM = normalized.includes('م') || normalized.includes('مساء') || normalized.includes('pm');
-  const isAM = normalized.includes('ص') || normalized.includes('صباح') || normalized.includes('am');
-
-  let hour = defaultHour;
-  let minute = defaultMinute;
-
-  // استخراج الساعة والدقيقة بنمط HH:MM أو HH.MM
-  const matchWithMin = normalized.match(/(\d{1,2})[:.](\d{1,2})/);
-  if (matchWithMin) {
-    hour = parseInt(matchWithMin[1], 10);
-    minute = parseInt(matchWithMin[2], 10);
-  } else {
-    const matchHourOnly = normalized.match(/\d{1,2}/);
-    if (matchHourOnly) {
-      hour = parseInt(matchHourOnly[0], 10);
-      minute = 0;
-    }
-  }
-
-  // التحويل من نظام 12 ساعة إلى نظام 24 ساعة
-  if (isPM && hour < 12) {
-    hour += 12;
-  } else if (isAM && hour === 12) {
-    hour = 0;
-  }
-
-  // ضبط الحدود
-  hour = Math.max(0, Math.min(23, hour));
-  minute = Math.max(0, Math.min(59, minute));
-
-  return {
-    hour,
-    minute,
-    totalMinutes: hour * 60 + minute,
-  };
 }
 
 function formatHoursArabic(h: number): string {
