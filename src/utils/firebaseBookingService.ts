@@ -630,38 +630,48 @@ export function subscribeToFirebaseBookings(
   const unsubscribe = onValue(
     bookingsRef,
     (snapshot) => {
-      const list: BookingSubmission[] = [];
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        if (data && typeof data === 'object') {
-          Object.keys(data).forEach((key) => {
-            const d = data[key];
-            if (d && d.customerName) {
-              list.push({
-                id: d.id || key,
-                bookingCode: d.bookingCode || '',
-                customerName: d.customerName || '',
-                customerPhone: d.customerPhone || '',
-                serviceId: d.serviceId || '',
-                serviceName: d.serviceName || '',
-                servicePrice: Number(d.servicePrice || 0),
-                date: d.date || '',
-                timeSlot: d.timeSlot || '',
-                notes: d.notes || '',
-                status: (d.status as BookingStatus) || 'pending',
-                createdAt: d.createdAt || '',
-              });
-            }
-          });
+      try {
+        const list: BookingSubmission[] = [];
+        if (snapshot && snapshot.exists()) {
+          const data = snapshot.val();
+          if (data && typeof data === 'object') {
+            Object.keys(data).forEach((key) => {
+              const d = data[key];
+              if (d && typeof d === 'object' && (d.customerName || d.bookingCode)) {
+                list.push({
+                  id: d.id || key,
+                  bookingCode: d.bookingCode || '',
+                  customerName: d.customerName || '',
+                  customerPhone: d.customerPhone || '',
+                  serviceId: d.serviceId || '',
+                  serviceName: d.serviceName || '',
+                  servicePrice: Number(d.servicePrice || 0),
+                  date: d.date || '',
+                  timeSlot: d.timeSlot || '',
+                  notes: d.notes || '',
+                  status: (d.status as BookingStatus) || 'pending',
+                  createdAt: d.createdAt || '',
+                });
+              }
+            });
+          }
         }
-      }
 
-      // Sort newest first
-      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      onUpdate(list);
+        // Sort newest first safely
+        list.sort((a, b) => {
+          const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return timeB - timeA;
+        });
+        onUpdate(list);
+      } catch (err) {
+        console.error('Error parsing Firebase bookings snapshot:', err);
+        onUpdate([]);
+      }
     },
     (error) => {
       console.error('Realtime Database bookings error:', error);
+      onUpdate([]);
     }
   );
 

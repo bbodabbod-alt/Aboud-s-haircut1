@@ -960,6 +960,23 @@ export function triggerBrowserNotificationIfPermitted(title: string, body: strin
    ========================================================================= */
 
 /**
+ * قائمة مواعيد احتياطية قياسية في حال حدوث أي خطأ أو تعذر قراءة أوقات العمل
+ */
+export function getFallbackTimeSlots(dayKey: DayKey = 'today'): DayTimeSlot[] {
+  const safeDayKey: DayKey = (dayKey === 'tomorrow' || dayKey === 'after_tomorrow') ? dayKey : 'today';
+  return [
+    { id: `dyn_${safeDayKey}_15_30`, dayKey: safeDayKey, timeLabel: '03:30 م', period: 'afternoon', isAvailable: true },
+    { id: `dyn_${safeDayKey}_17_00`, dayKey: safeDayKey, timeLabel: '05:00 م', period: 'evening', isAvailable: true },
+    { id: `dyn_${safeDayKey}_18_30`, dayKey: safeDayKey, timeLabel: '06:30 م', period: 'evening', isAvailable: true },
+    { id: `dyn_${safeDayKey}_20_00`, dayKey: safeDayKey, timeLabel: '08:00 م', period: 'evening', isAvailable: true },
+    { id: `dyn_${safeDayKey}_21_30`, dayKey: safeDayKey, timeLabel: '09:30 م', period: 'evening', isAvailable: true },
+    { id: `dyn_${safeDayKey}_23_00`, dayKey: safeDayKey, timeLabel: '11:00 م', period: 'evening', isAvailable: true },
+    { id: `dyn_${safeDayKey}_00_30`, dayKey: safeDayKey, timeLabel: '12:30 ص', period: 'evening', isAvailable: true },
+    { id: `dyn_${safeDayKey}_02_00`, dayKey: safeDayKey, timeLabel: '02:00 ص', period: 'evening', isAvailable: true },
+  ];
+}
+
+/**
  * دالة توليد وحساب المواعيد الديناميكية (Dynamic Time Slots Generation):
  * تقسم أوقات الحجز تلقائياً بناءً على:
  * 1. وقت بداية العمل (openTime، مثال: 03:30 PM أو 03:30 م)
@@ -973,6 +990,10 @@ export function generateDynamicTimeSlots(
   slotDurationMinutes?: number | string | null,
   dayKey: DayKey = 'today'
 ): DayTimeSlot[] {
+  const safeDayKey: DayKey = (dayKey === 'tomorrow' || dayKey === 'after_tomorrow')
+    ? dayKey
+    : 'today';
+
   try {
     // 1. فحص وجود أوقات العمل وتطبيق القيم الافتراضية الصارمة (Null Safety)
     const safeOpenTime = (typeof openTime === 'string' && openTime.trim().length > 0)
@@ -988,10 +1009,6 @@ export function generateDynamicTimeSlots(
       ? parsedDuration
       : 90;
 
-    const safeDayKey: DayKey = (dayKey === 'tomorrow' || dayKey === 'after_tomorrow')
-      ? dayKey
-      : 'today';
-
     const openParsed = parseTimeString(safeOpenTime, 15, 30);
     const closeParsed = parseTimeString(safeCloseTime, 3, 30);
 
@@ -1004,7 +1021,7 @@ export function generateDynamicTimeSlots(
       : (endMinutes - startMinutes);
 
     if (isNaN(totalOperationalMinutes) || totalOperationalMinutes <= 0) {
-      return [];
+      return getFallbackTimeSlots(safeDayKey);
     }
 
     const slots: DayTimeSlot[] = [];
@@ -1057,10 +1074,10 @@ export function generateDynamicTimeSlots(
       currentOffset += duration;
     }
 
-    return slots;
+    return slots.length > 0 ? slots : getFallbackTimeSlots(safeDayKey);
   } catch (err) {
-    console.error('Error generating dynamic time slots:', err);
-    return [];
+    console.error('Error generating dynamic time slots, returning fallback default slots:', err);
+    return getFallbackTimeSlots(safeDayKey);
   }
 }
 
@@ -1071,10 +1088,11 @@ export function createDefaultTimeSlots(dayKey: DayKey = 'today', customSettings?
     const closeTime = settings?.workingHours?.closeTime || settings?.closeTime || '03:30 ص';
     const duration = Number(settings?.workingHours?.slotDurationMinutes || settings?.slotDurationMinutes) || 90;
 
-    return generateDynamicTimeSlots(openTime, closeTime, duration, dayKey);
+    const slots = generateDynamicTimeSlots(openTime, closeTime, duration, dayKey);
+    return slots && slots.length > 0 ? slots : getFallbackTimeSlots(dayKey);
   } catch (err) {
     console.error('Error in createDefaultTimeSlots:', err);
-    return [];
+    return getFallbackTimeSlots(dayKey);
   }
 }
 
