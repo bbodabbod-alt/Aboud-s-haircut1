@@ -4,6 +4,7 @@ import { AlertCircle, RotateCcw, X } from 'lucide-react';
 interface Props {
   children: ReactNode;
   onClose?: () => void;
+  fallback?: ReactNode;
 }
 
 interface State {
@@ -21,7 +22,7 @@ export default class BookingModalErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('BookingModal uncaught render error caught by boundary:', error, errorInfo);
+    console.error('BookingModal error handled gracefully by boundary:', error, errorInfo);
   }
 
   private handleRetry = () => {
@@ -30,6 +31,11 @@ export default class BookingModalErrorBoundary extends Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
+      // إزالة شاشة التوقف في حال وجود واجهة افتراضية وعرض المواعيد فوراً بالبيانات البديلة
+      if (this.props.fallback) {
+        return this.props.fallback;
+      }
+
       return (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="relative w-full max-w-md bg-[#0e1117] border border-neutral-800 rounded-3xl p-6 text-center space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200">

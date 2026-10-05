@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { BarberService, BookingSubmission, DayTimeSlot, DayKey, SalonSettings } from '../types';
 import { SERVICES as DEFAULT_SERVICES } from '../data/services';
 import { submitBooking } from '../utils/bookingApi';
-import { generateDynamicTimeSlots, getAllBookings } from '../utils/salonStore';
+import { generateDynamicTimeSlots, getAllBookings, getFallbackTimeSlots, DEFAULT_SALON_SETTINGS } from '../utils/salonStore';
 import { subscribeToFirebaseBookings, subscribeToFirebaseWorkingHours } from '../utils/firebaseBookingService';
 import { X, Calendar, Clock, User, Phone, CheckCircle2, AlertCircle, Share2, Copy, Check } from 'lucide-react';
 import BookingModalErrorBoundary from './BookingModalErrorBoundary';
@@ -15,6 +15,22 @@ interface BookingModalProps {
   existingBooking?: BookingSubmission | null;
   services?: BarberService[];
   settings?: SalonSettings;
+}
+
+const DEFAULT_OPEN_TIME = '03:30 م';
+const DEFAULT_CLOSE_TIME = '03:30 ص';
+const DEFAULT_SLOT_DURATION = 90;
+
+function safeFormatDate(d: Date, fallback: string): string {
+  try {
+    return d.toLocaleDateString('ar-IQ', { weekday: 'long', day: 'numeric', month: 'short' });
+  } catch {
+    try {
+      return d.toLocaleDateString('ar', { weekday: 'long', day: 'numeric', month: 'short' });
+    } catch {
+      return fallback;
+    }
+  }
 }
 
 function BookingModalInner({
@@ -35,31 +51,62 @@ function BookingModalInner({
       .sort((a, b) => (Number(b?.price) || 0) - (Number(a?.price) || 0));
   }, [services]);
 
+  const fallbackService: BarberService = DEFAULT_SERVICES[0] || {
+    id: 'default_service',
+    name: 'حلاقة شعر احترافية',
+    price: 10000,
+    priceFormatted: '10,000 د.ع',
+    category: 'haircut',
+    durationMinutes: 25,
+  };
+
   // Form State
-  const initialServiceId = selectedService?.id || availableServices[0]?.id || DEFAULT_SERVICES[0]?.id || '1';
+  const initialServiceId = selectedService?.id || availableServices[0]?.id || fallbackService.id;
   const [serviceId, setServiceId] = useState<string>(initialServiceId);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [selectedDate, setSelectedDate] = useState<DayKey>('today');
-  const [selectedTimeSlot, setSelectedTimeSlot] = useState<string>('');
   const [notes, setNotes] = useState('');
 
-  // أوقات العمل من Firebase أو الإعدادات العامة مع قيم افتراضية صارمة
+  // 1. التهيئة الفورية بالقيم الافتراضية الصارمة دون انتظار Firebase
+  const initialOpen = settings?.workingHours?.openTime || settings?.openTime || DEFAULT_OPEN_TIME;
+  const initialClose = settings?.workingHours?.closeTime || settings?.closeTime || DEFAULT_CLOSE_TIME;
+  const initialDuration = Number(settings?.workingHours?.slotDurationMinutes || settings?.slotDurationMinutes) || DEFAULT_SLOT_DURATION;
+
   const [fbWorkingHours, setFbWorkingHours] = useState<{
-    openTime?: string;
-    closeTime?: string;
-    slotDurationMinutes?: number;
-  } | null>(null);
+    openTime: string;
+    closeTime: string;
+    slotDurationMinutes: number;
+  }>({
+    openTime: initialOpen,
+    closeTime: initialClose,
+    slotDurationMinutes: initialDuration,
+  });
 
-  const effectiveOpenTime = fbWorkingHours?.openTime || settings?.workingHours?.openTime || settings?.openTime || '03:30 م';
-  const effectiveCloseTime = fbWorkingHours?.closeTime || settings?.workingHours?.closeTime || settings?.closeTime || '03:30 ص';
-  const effectiveDuration = Number(
-    fbWorkingHours?.slotDurationMinutes || settings?.workingHours?.slotDurationMinutes || settings?.slotDurationMinutes
-  ) || 90;
+  const effectiveOpenTime = fbWorkingHours.openTime || initialOpen || DEFAULT_OPEN_TIME;
+  const effectiveCloseTime = fbWorkingHours.closeTime || initialClose || DEFAULT_CLOSE_TIME;
+  const effectiveDuration = fbWorkingHours.slotDurationMinutes || initialDuration || DEFAULT_SLOT_DURATION;
 
-  // Dynamic Time Slots State
-  const [daySlots, setDaySlots] = useState<DayTimeSlot[]>([]);
-  const [isLoadingSlots, setIsLoadingSlots] = useState<boolean>(true);
+  // 2. توليد المواعيد فوراً في لحظة الـ First Render دون شاشات تعليق أو توقف
+  const [daySlots, setDaySlots] = useState<DayTimeSlot[]>(() => {
+    try {
+      const generated = generateDynamicTimeSlots(initialOpen, initialClose, initialDuration, 'today');
+      return generated && generated.length > 0 ? generated : getFallbackTimeSlots('today');
+    } catch {
+      return getFallbackTimeSlots('today');
+    }
+  });
+  const [isLoadingSlots, setIsLoadingSlots] = useState<boolean>(false);
+
+  const [selectedTimeSlot, setSelectedTimeSlot] = useState<string>(() => {
+    try {
+      const generated = generateDynamicTimeSlots(initialOpen, initialClose, initialDuration, 'today');
+      const first = generated.find((s) => s.isAvailable);
+      return first ? first.timeLabel : (generated[0]?.timeLabel || '03:30 م');
+    } catch {
+      return '03:30 م';
+    }
+  });
 
   // UI State
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -76,14 +123,18 @@ function BookingModalInner({
     }
   }, [selectedService, availableServices, serviceId]);
 
-  // اشتراك لحظي بمسار settings/workingHours في Firebase
+  // اشتراك لحظي بمسار settings/workingHours في Firebase في الخلفية دون إعادة تعيين الواجهة
   useEffect(() => {
     let isMounted = true;
     try {
       const unsubscribe = subscribeToFirebaseWorkingHours((fbHours) => {
         if (!isMounted) return;
         if (fbHours && (fbHours.openTime || fbHours.closeTime)) {
-          setFbWorkingHours(fbHours);
+          setFbWorkingHours({
+            openTime: fbHours.openTime || DEFAULT_OPEN_TIME,
+            closeTime: fbHours.closeTime || DEFAULT_CLOSE_TIME,
+            slotDurationMinutes: Number(fbHours.slotDurationMinutes) || DEFAULT_SLOT_DURATION,
+          });
         }
       });
       return () => {
@@ -91,7 +142,7 @@ function BookingModalInner({
         unsubscribe();
       };
     } catch (err) {
-      console.error('Error subscribing to working hours:', err);
+      console.warn('Silent fallback for working hours listener:', err);
     }
   }, []);
 
@@ -110,12 +161,11 @@ function BookingModalInner({
     prevIsOpenRef.current = isOpen;
   }, [isOpen, existingBooking]);
 
-  // دالة حساب وتوليد المواعيد الديناميكية ومزامنتها مع الحجوزات
+  // دالة حساب وتوليد المواعيد ومزامنتها في الخلفية
   useEffect(() => {
     if (!isOpen) return;
 
     let isMounted = true;
-    setIsLoadingSlots(true);
 
     try {
       // 1. توليد المواعيد الأساسية بالزيادة المحددة ومعالجة منتصف الليل
@@ -125,6 +175,9 @@ function BookingModalInner({
         effectiveDuration,
         selectedDate
       );
+      const safeBase = (baseGenerated && baseGenerated.length > 0)
+        ? baseGenerated
+        : getFallbackTimeSlots(selectedDate);
 
       const syncWithBookings = (allBookingsList: BookingSubmission[]) => {
         if (!isMounted) return;
@@ -144,7 +197,7 @@ function BookingModalInner({
               )
             : [];
 
-          const computed = (baseGenerated || []).map((slot) => {
+          const computed = safeBase.map((slot) => {
             if (!slot) return slot;
             const match = safeBookings.find((b) => b.timeSlot === slot.timeLabel);
             if (match) {
@@ -159,25 +212,23 @@ function BookingModalInner({
           });
 
           setDaySlots(computed);
-          setIsLoadingSlots(false);
 
           // تحديد أول توقيت متاح تلقائياً إن لم يكن التوقيت الحالي متاحاً
           setSelectedTimeSlot((currentSelected) => {
             const isStillAvailable = computed.some((s) => s && s.timeLabel === currentSelected && s.isAvailable);
             if (isStillAvailable) return currentSelected;
             const firstAvail = computed.find((s) => s && s.isAvailable);
-            return firstAvail ? firstAvail.timeLabel : '';
+            return firstAvail ? firstAvail.timeLabel : (computed[0]?.timeLabel || '');
           });
         } catch (innerErr) {
           console.error('Error syncing slots with bookings:', innerErr);
           if (isMounted) {
-            setDaySlots(baseGenerated || []);
-            setIsLoadingSlots(false);
+            setDaySlots(safeBase);
           }
         }
       };
 
-      // مزامنة أولية مع التخزين المحلي
+      // مزامنة أولية مع التخزين المحلي فوراً
       syncWithBookings(getAllBookings());
 
       // اشتراك لحظي مع Firebase
@@ -192,8 +243,7 @@ function BookingModalInner({
     } catch (err) {
       console.error('Error in slots generation effect:', err);
       if (isMounted) {
-        setDaySlots([]);
-        setIsLoadingSlots(false);
+        setDaySlots(getFallbackTimeSlots(selectedDate));
       }
     }
   }, [isOpen, selectedDate, effectiveOpenTime, effectiveCloseTime, effectiveDuration]);
@@ -216,7 +266,10 @@ function BookingModalInner({
 
   if (!isOpen) return null;
 
-  const currentService: BarberService = availableServices.find((s) => s.id === serviceId) || availableServices[0] || DEFAULT_SERVICES[0];
+  const currentService: BarberService =
+    availableServices.find((s) => s && s.id === serviceId) ||
+    availableServices[0] ||
+    fallbackService;
 
   // Helper date strings with fallback
   const todayDate = new Date();
@@ -226,9 +279,9 @@ function BookingModalInner({
   afterTomorrowDate.setDate(afterTomorrowDate.getDate() + 2);
 
   const dateOptions: { id: DayKey; label: string; dateStr: string }[] = [
-    { id: 'today', label: 'اليوم', dateStr: todayDate.toLocaleDateString('ar-IQ', { weekday: 'long', day: 'numeric', month: 'short' }) },
-    { id: 'tomorrow', label: 'غداً', dateStr: tomorrowDate.toLocaleDateString('ar-IQ', { weekday: 'long', day: 'numeric', month: 'short' }) },
-    { id: 'after_tomorrow', label: 'بعد غد', dateStr: afterTomorrowDate.toLocaleDateString('ar-IQ', { weekday: 'long', day: 'numeric', month: 'short' }) },
+    { id: 'today', label: 'اليوم', dateStr: safeFormatDate(todayDate, 'اليوم') },
+    { id: 'tomorrow', label: 'غداً', dateStr: safeFormatDate(tomorrowDate, 'غداً') },
+    { id: 'after_tomorrow', label: 'بعد غد', dateStr: safeFormatDate(afterTomorrowDate, 'بعد غد') },
   ];
 
   const activeDateOption = dateOptions.find((d) => d.id === selectedDate) || dateOptions[0];
@@ -290,18 +343,22 @@ function BookingModalInner({
 
   const whatsappUrl = useMemo(() => {
     if (!confirmedBooking) return '#';
-    const text = encodeURIComponent(
-      `مرحباً صالون حلاقة عبود 💈\nتم تأكيد حجزي بالمعلومات التالية:\n\n` +
-      `▪ رمز الحجز: ${confirmedBooking.bookingCode}\n` +
-      `▪ الخدمة: ${confirmedBooking.serviceName}\n` +
-      `▪ الموعد: ${confirmedBooking.date}\n` +
-      `▪ التوقيت: ${confirmedBooking.timeSlot}\n` +
-      `▪ الاسم: ${confirmedBooking.customerName}\n` +
-      `▪ الهاتف: ${confirmedBooking.customerPhone}\n\n` +
-      `يرجى تأكيد الحجز عند استلام الرسالة، شكراً لكم!`
-    );
-    const whatsappNum = (settings?.whatsapp || '9647712818522').replace(/\D/g, '');
-    return `https://wa.me/${whatsappNum}?text=${text}`;
+    try {
+      const text = encodeURIComponent(
+        `مرحباً صالون حلاقة عبود 💈\nتم تأكيد حجزي بالمعلومات التالية:\n\n` +
+        `▪ رمز الحجز: ${confirmedBooking.bookingCode || '---'}\n` +
+        `▪ الخدمة: ${confirmedBooking.serviceName || 'حلاقة'}\n` +
+        `▪ الموعد: ${confirmedBooking.date || 'اليوم'}\n` +
+        `▪ التوقيت: ${confirmedBooking.timeSlot || ''}\n` +
+        `▪ الاسم: ${confirmedBooking.customerName || ''}\n` +
+        `▪ الهاتف: ${confirmedBooking.customerPhone || ''}\n\n` +
+        `يرجى تأكيد الحجز عند استلام الرسالة، شكراً لكم!`
+      );
+      const whatsappNum = (settings?.whatsapp || '9647712818522').replace(/\D/g, '');
+      return `https://wa.me/${whatsappNum}?text=${text}`;
+    } catch {
+      return '#';
+    }
   }, [confirmedBooking, settings?.whatsapp]);
 
   return (
@@ -653,8 +710,19 @@ function BookingModalInner({
 }
 
 export default function BookingModal(props: BookingModalProps) {
+  if (!props.isOpen) return null;
+
   return (
-    <BookingModalErrorBoundary onClose={props.onClose}>
+    <BookingModalErrorBoundary
+      onClose={props.onClose}
+      fallback={
+        <BookingModalInner
+          {...props}
+          services={props.services && props.services.length > 0 ? props.services : DEFAULT_SERVICES}
+          settings={props.settings || DEFAULT_SALON_SETTINGS}
+        />
+      }
+    >
       <BookingModalInner {...props} />
     </BookingModalErrorBoundary>
   );
