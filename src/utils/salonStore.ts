@@ -965,14 +965,14 @@ export function triggerBrowserNotificationIfPermitted(title: string, body: strin
 export function getFallbackTimeSlots(dayKey: DayKey = 'today'): DayTimeSlot[] {
   const safeDayKey: DayKey = (dayKey === 'tomorrow' || dayKey === 'after_tomorrow') ? dayKey : 'today';
   return [
-    { id: `dyn_${safeDayKey}_15_30`, dayKey: safeDayKey, timeLabel: '03:30 م', period: 'afternoon', isAvailable: true },
-    { id: `dyn_${safeDayKey}_17_00`, dayKey: safeDayKey, timeLabel: '05:00 م', period: 'evening', isAvailable: true },
-    { id: `dyn_${safeDayKey}_18_30`, dayKey: safeDayKey, timeLabel: '06:30 م', period: 'evening', isAvailable: true },
-    { id: `dyn_${safeDayKey}_20_00`, dayKey: safeDayKey, timeLabel: '08:00 م', period: 'evening', isAvailable: true },
-    { id: `dyn_${safeDayKey}_21_30`, dayKey: safeDayKey, timeLabel: '09:30 م', period: 'evening', isAvailable: true },
-    { id: `dyn_${safeDayKey}_23_00`, dayKey: safeDayKey, timeLabel: '11:00 م', period: 'evening', isAvailable: true },
-    { id: `dyn_${safeDayKey}_00_30`, dayKey: safeDayKey, timeLabel: '12:30 ص', period: 'evening', isAvailable: true },
-    { id: `dyn_${safeDayKey}_02_00`, dayKey: safeDayKey, timeLabel: '02:00 ص', period: 'evening', isAvailable: true },
+    { id: `dyn_${safeDayKey}_15_30`, dayKey: safeDayKey, timeLabel: '03:30 عصراً', period: 'afternoon', isAvailable: true },
+    { id: `dyn_${safeDayKey}_17_00`, dayKey: safeDayKey, timeLabel: '05:00 مساءً', period: 'evening', isAvailable: true },
+    { id: `dyn_${safeDayKey}_18_30`, dayKey: safeDayKey, timeLabel: '06:30 مساءً', period: 'evening', isAvailable: true },
+    { id: `dyn_${safeDayKey}_20_00`, dayKey: safeDayKey, timeLabel: '08:00 مساءً', period: 'evening', isAvailable: true },
+    { id: `dyn_${safeDayKey}_21_30`, dayKey: safeDayKey, timeLabel: '09:30 مساءً', period: 'evening', isAvailable: true },
+    { id: `dyn_${safeDayKey}_23_00`, dayKey: safeDayKey, timeLabel: '11:00 مساءً', period: 'evening', isAvailable: true },
+    { id: `dyn_${safeDayKey}_00_30`, dayKey: safeDayKey, timeLabel: '12:30 ليلاً', period: 'evening', isAvailable: true },
+    { id: `dyn_${safeDayKey}_02_00`, dayKey: safeDayKey, timeLabel: '02:00 ليلاً', period: 'evening', isAvailable: true },
   ];
 }
 

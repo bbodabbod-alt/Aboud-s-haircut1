@@ -2,10 +2,9 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { BarberService, BookingSubmission, DayTimeSlot, DayKey, SalonSettings } from '../types';
 import { SERVICES as DEFAULT_SERVICES } from '../data/services';
 import { submitBooking } from '../utils/bookingApi';
-import { generateDynamicTimeSlots, getAllBookings, getFallbackTimeSlots, DEFAULT_SALON_SETTINGS } from '../utils/salonStore';
+import { generateDynamicTimeSlots, getAllBookings, getFallbackTimeSlots } from '../utils/salonStore';
 import { subscribeToFirebaseBookings, subscribeToFirebaseWorkingHours } from '../utils/firebaseBookingService';
 import { X, Calendar, Clock, User, Phone, CheckCircle2, AlertCircle, Share2, Copy, Check } from 'lucide-react';
-import BookingModalErrorBoundary from './BookingModalErrorBoundary';
 
 interface BookingModalProps {
   isOpen: boolean;
@@ -17,9 +16,11 @@ interface BookingModalProps {
   settings?: SalonSettings;
 }
 
-const DEFAULT_OPEN_TIME = '03:30 م';
-const DEFAULT_CLOSE_TIME = '03:30 ص';
-const DEFAULT_SLOT_DURATION = 90;
+export const DEFAULT_WORKING_HOURS = {
+  openTime: "03:30 م",
+  closeTime: "03:30 ص",
+  slotDurationMinutes: 90,
+};
 
 function safeFormatDate(d: Date, fallback: string): string {
   try {
@@ -68,10 +69,10 @@ function BookingModalInner({
   const [selectedDate, setSelectedDate] = useState<DayKey>('today');
   const [notes, setNotes] = useState('');
 
-  // 1. التهيئة الفورية بالقيم الافتراضية الصارمة دون انتظار Firebase
-  const initialOpen = settings?.workingHours?.openTime || settings?.openTime || DEFAULT_OPEN_TIME;
-  const initialClose = settings?.workingHours?.closeTime || settings?.closeTime || DEFAULT_CLOSE_TIME;
-  const initialDuration = Number(settings?.workingHours?.slotDurationMinutes || settings?.slotDurationMinutes) || DEFAULT_SLOT_DURATION;
+  // 1. التهيئة الفورية بالقيم الافتراضية الصارمة (Hardcoded Fallback) دون انتظار Firebase
+  const initialOpen = settings?.workingHours?.openTime || settings?.openTime || DEFAULT_WORKING_HOURS.openTime;
+  const initialClose = settings?.workingHours?.closeTime || settings?.closeTime || DEFAULT_WORKING_HOURS.closeTime;
+  const initialDuration = Number(settings?.workingHours?.slotDurationMinutes || settings?.slotDurationMinutes) || DEFAULT_WORKING_HOURS.slotDurationMinutes;
 
   const [fbWorkingHours, setFbWorkingHours] = useState<{
     openTime: string;
@@ -83,28 +84,28 @@ function BookingModalInner({
     slotDurationMinutes: initialDuration,
   });
 
-  const effectiveOpenTime = fbWorkingHours.openTime || initialOpen || DEFAULT_OPEN_TIME;
-  const effectiveCloseTime = fbWorkingHours.closeTime || initialClose || DEFAULT_CLOSE_TIME;
-  const effectiveDuration = fbWorkingHours.slotDurationMinutes || initialDuration || DEFAULT_SLOT_DURATION;
+  const effectiveOpenTime = fbWorkingHours?.openTime || initialOpen || DEFAULT_WORKING_HOURS.openTime;
+  const effectiveCloseTime = fbWorkingHours?.closeTime || initialClose || DEFAULT_WORKING_HOURS.closeTime;
+  const effectiveDuration = fbWorkingHours?.slotDurationMinutes || initialDuration || DEFAULT_WORKING_HOURS.slotDurationMinutes;
 
   // 2. توليد المواعيد فوراً في لحظة الـ First Render دون شاشات تعليق أو توقف
   const [daySlots, setDaySlots] = useState<DayTimeSlot[]>(() => {
     try {
       const generated = generateDynamicTimeSlots(initialOpen, initialClose, initialDuration, 'today');
-      return generated && generated.length > 0 ? generated : getFallbackTimeSlots('today');
+      return (Array.isArray(generated) && generated.length > 0) ? generated : getFallbackTimeSlots('today');
     } catch {
       return getFallbackTimeSlots('today');
     }
   });
-  const [isLoadingSlots, setIsLoadingSlots] = useState<boolean>(false);
+  const [isLoadingSlots] = useState<boolean>(false);
 
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<string>(() => {
     try {
       const generated = generateDynamicTimeSlots(initialOpen, initialClose, initialDuration, 'today');
-      const first = generated.find((s) => s.isAvailable);
-      return first ? first.timeLabel : (generated[0]?.timeLabel || '03:30 م');
+      const first = Array.isArray(generated) ? generated.find((s) => s && s.isAvailable) : undefined;
+      return first ? first.timeLabel : (generated[0]?.timeLabel || '03:30 عصراً');
     } catch {
-      return '03:30 م';
+      return '03:30 عصراً';
     }
   });
 
@@ -131,9 +132,9 @@ function BookingModalInner({
         if (!isMounted) return;
         if (fbHours && (fbHours.openTime || fbHours.closeTime)) {
           setFbWorkingHours({
-            openTime: fbHours.openTime || DEFAULT_OPEN_TIME,
-            closeTime: fbHours.closeTime || DEFAULT_CLOSE_TIME,
-            slotDurationMinutes: Number(fbHours.slotDurationMinutes) || DEFAULT_SLOT_DURATION,
+            openTime: fbHours.openTime || DEFAULT_WORKING_HOURS.openTime,
+            closeTime: fbHours.closeTime || DEFAULT_WORKING_HOURS.closeTime,
+            slotDurationMinutes: Number(fbHours.slotDurationMinutes) || DEFAULT_WORKING_HOURS.slotDurationMinutes,
           });
         }
       });
@@ -711,19 +712,5 @@ function BookingModalInner({
 
 export default function BookingModal(props: BookingModalProps) {
   if (!props.isOpen) return null;
-
-  return (
-    <BookingModalErrorBoundary
-      onClose={props.onClose}
-      fallback={
-        <BookingModalInner
-          {...props}
-          services={props.services && props.services.length > 0 ? props.services : DEFAULT_SERVICES}
-          settings={props.settings || DEFAULT_SALON_SETTINGS}
-        />
-      }
-    >
-      <BookingModalInner {...props} />
-    </BookingModalErrorBoundary>
-  );
+  return <BookingModalInner {...props} />;
 }

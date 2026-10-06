@@ -1,4 +1,4 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Component, ReactNode } from 'react';
 
 interface Props {
   children: ReactNode;
@@ -8,7 +8,6 @@ interface Props {
 
 interface State {
   hasError: boolean;
-  error?: Error;
 }
 
 export default class BookingModalErrorBoundary extends Component<Props, State> {
@@ -16,27 +15,15 @@ export default class BookingModalErrorBoundary extends Component<Props, State> {
     hasError: false,
   };
 
-  public static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+  public static getDerivedStateFromError(): State {
+    return { hasError: false };
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('BookingModal error handled gracefully by boundary:', error, errorInfo);
+  public componentDidCatch(error: unknown) {
+    console.warn('BookingModal intercepted error gracefully:', error);
   }
-
-  private handleRetry = () => {
-    this.setState({ hasError: false, error: undefined });
-  };
 
   public render() {
-    if (this.state.hasError) {
-      // إزالة شاشة التوقف نهائياً وعرض واجهة الحجز بالبيانات الافتراضية بسلاسة
-      if (this.props.fallback) {
-        return this.props.fallback;
-      }
-      return this.props.children;
-    }
-
     return this.props.children;
   }
 }
