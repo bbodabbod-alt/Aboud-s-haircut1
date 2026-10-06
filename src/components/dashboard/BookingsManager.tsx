@@ -80,12 +80,22 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
   };
 
   // Filter and search using currentBookings state
+  const pendingCount = currentBookings.filter((b) => b.status === 'pending').length;
+  const acceptedCount = currentBookings.filter((b) => b.status === 'accepted' || b.status === 'approved').length;
+  const completedCount = currentBookings.filter((b) => b.status === 'completed').length;
+  const rejectedCount = currentBookings.filter((b) => b.status === 'rejected').length;
+
   const filteredBookings = currentBookings.filter((b) => {
-    const matchesFilter = filter === 'all'
-      ? true
-      : filter === 'accepted'
-      ? (b.status === 'accepted' || b.status === 'approved')
-      : b.status === filter;
+    let matchesFilter = true;
+    if (filter === 'pending') {
+      matchesFilter = b.status === 'pending';
+    } else if (filter === 'accepted') {
+      matchesFilter = b.status === 'accepted' || b.status === 'approved';
+    } else if (filter === 'completed') {
+      matchesFilter = b.status === 'completed';
+    } else if (filter === 'rejected') {
+      matchesFilter = b.status === 'rejected';
+    }
 
     const q = searchQuery.toLowerCase().trim();
     const matchesSearch = !q || 
@@ -95,9 +105,6 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
       b.serviceName.toLowerCase().includes(q);
     return matchesFilter && matchesSearch;
   });
-
-  const pendingCount = currentBookings.filter((b) => b.status === 'pending').length;
-  const acceptedCount = currentBookings.filter((b) => b.status === 'accepted' || b.status === 'approved').length;
 
   const getStatusBadge = (status: BookingStatus) => {
     switch (status) {
@@ -150,21 +157,27 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
           <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
             <span>استقبال وإدارة الحجوزات</span>
             <span className="text-xs font-mono font-bold bg-amber-500/20 text-amber-400 px-2.5 py-1 rounded-full border border-amber-500/30">
-              {bookings.length} موعد
+              {currentBookings.length} موعد
             </span>
           </h2>
           <p className="text-xs text-neutral-400 mt-1">
-            استقبل حجوزات الزبائن الواردة من الموقع، واقبلها أو ارفضها لتنعكس الحالة لديهم فوراً.
+            استقبل حجوزات الزبائن الواردة من الموقع، واقبلها أو ارفضها أو أنجزها لتنعكس الحالة لديهم فوراً.
           </p>
         </div>
 
         {/* Quick Stats Pill */}
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 font-semibold">
-            {pendingCount} بانتظار الموافقة
+            {pendingCount} قيد الانتظار
           </span>
           <span className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-semibold">
-            {acceptedCount} مؤكد
+            {acceptedCount} مقبولة
+          </span>
+          <span className="px-3 py-1.5 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-300 font-semibold">
+            {completedCount} منجزة
+          </span>
+          <span className="px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 font-semibold">
+            {rejectedCount} مرفوضة
           </span>
         </div>
       </div>
@@ -173,16 +186,21 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 p-4 rounded-2xl bg-[#121620] border border-neutral-800">
         
         {/* Filter Tabs */}
-        <div className="flex items-center gap-1 overflow-x-auto pb-1 md:pb-0">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
           <button
             onClick={() => setFilter('all')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
               filter === 'all'
                 ? 'bg-amber-500 text-neutral-950 shadow-sm'
                 : 'text-neutral-400 hover:text-white bg-neutral-900 border border-neutral-800'
             }`}
           >
-            الكل ({bookings.length})
+            <span>الكل</span>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+              filter === 'all' ? 'bg-neutral-950 text-amber-400' : 'bg-neutral-800 text-neutral-300'
+            }`}>
+              {currentBookings.length}
+            </span>
           </button>
 
           <button
@@ -194,46 +212,59 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
             }`}
           >
             <span>قيد الانتظار</span>
-            {pendingCount > 0 && (
-              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                filter === 'pending' ? 'bg-neutral-950 text-amber-400' : 'bg-amber-500 text-neutral-950'
-              }`}>
-                {pendingCount}
-              </span>
-            )}
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+              filter === 'pending' ? 'bg-neutral-950 text-amber-400' : 'bg-amber-500/20 text-amber-300'
+            }`}>
+              {pendingCount}
+            </span>
           </button>
 
           <button
             onClick={() => setFilter('accepted')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
               filter === 'accepted'
                 ? 'bg-emerald-500 text-neutral-950 shadow-sm'
                 : 'text-neutral-400 hover:text-white bg-neutral-900 border border-neutral-800'
             }`}
           >
-            المقبولة ({acceptedCount})
-          </button>
-
-          <button
-            onClick={() => setFilter('rejected')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
-              filter === 'rejected'
-                ? 'bg-rose-500 text-white shadow-sm'
-                : 'text-neutral-400 hover:text-white bg-neutral-900 border border-neutral-800'
-            }`}
-          >
-            المرفوضة
+            <span>المقبولة</span>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+              filter === 'accepted' ? 'bg-neutral-950 text-emerald-400' : 'bg-emerald-500/20 text-emerald-300'
+            }`}>
+              {acceptedCount}
+            </span>
           </button>
 
           <button
             onClick={() => setFilter('completed')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
               filter === 'completed'
                 ? 'bg-sky-500 text-white shadow-sm'
                 : 'text-neutral-400 hover:text-white bg-neutral-900 border border-neutral-800'
             }`}
           >
-            المنجزة
+            <span>المنجزة</span>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+              filter === 'completed' ? 'bg-neutral-950 text-sky-400' : 'bg-sky-500/20 text-sky-300'
+            }`}>
+              {completedCount}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setFilter('rejected')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+              filter === 'rejected'
+                ? 'bg-rose-500 text-white shadow-sm'
+                : 'text-neutral-400 hover:text-white bg-neutral-900 border border-neutral-800'
+            }`}
+          >
+            <span>المرفوضة</span>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+              filter === 'rejected' ? 'bg-neutral-950 text-rose-400' : 'bg-rose-500/20 text-rose-300'
+            }`}>
+              {rejectedCount}
+            </span>
           </button>
         </div>
 
@@ -268,8 +299,10 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
               className={`p-5 rounded-2xl bg-[#121620] border transition-all duration-200 flex flex-col lg:flex-row lg:items-center justify-between gap-5 ${
                 b.status === 'pending'
                   ? 'border-amber-500/50 shadow-md shadow-amber-500/5'
-                  : b.status === 'accepted'
+                  : b.status === 'accepted' || b.status === 'approved'
                   ? 'border-emerald-500/30'
+                  : b.status === 'completed'
+                  ? 'border-sky-500/30'
                   : 'border-neutral-800 hover:border-neutral-700'
               }`}
             >
@@ -330,50 +363,58 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
               {/* Action Buttons Zone */}
               <div className="flex flex-wrap lg:flex-col items-center lg:items-end justify-between gap-2.5 pt-3 lg:pt-0 border-t lg:border-t-0 border-neutral-800 shrink-0">
                 
-                {/* Decision Actions */}
+                {/* Decision Actions - Render strictly according to booking status */}
                 <div className="flex items-center gap-2">
-                  {b.status !== 'accepted' && b.status !== 'approved' && (
-                    <button
-                      onClick={() => handleStatusChange(b.id, 'accepted')}
-                      className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                      title="قبول الحجز"
-                    >
-                      <CheckCircle className="w-3.5 h-3.5" />
-                      <span>قبول</span>
-                    </button>
+                  {/* 1. إذا كانت الحالة قيد الانتظار: إظهار زر قبول وزر رفض فقط */}
+                  {b.status === 'pending' && (
+                    <>
+                      <button
+                        onClick={() => handleStatusChange(b.id, 'accepted')}
+                        className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                        title="قبول الحجز ونقله للمقبولة"
+                      >
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        <span>قبول</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleStatusChange(b.id, 'rejected')}
+                        className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                        title="رفض الحجز ونقله للمرفوضة"
+                      >
+                        <XCircle className="w-3.5 h-3.5" />
+                        <span>رفض</span>
+                      </button>
+                    </>
                   )}
 
-                  {b.status !== 'rejected' && (
-                    <button
-                      onClick={() => handleStatusChange(b.id, 'rejected')}
-                      className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                      title="رفض الحجز"
-                    >
-                      <XCircle className="w-3.5 h-3.5" />
-                      <span>رفض</span>
-                    </button>
-                  )}
-
-                  {b.status !== 'completed' && (
+                  {/* 2. إذا كانت الحالة مقبولة: إخفاء أزرار القبول والرفض وإظهار زر تم الإنجاز فقط */}
+                  {(b.status === 'accepted' || b.status === 'approved') && (
                     <button
                       onClick={() => handleStatusChange(b.id, 'completed')}
-                      className="px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-sky-600 hover:text-white text-neutral-200 text-xs font-semibold border border-neutral-700 transition-colors flex items-center gap-1 cursor-pointer active:scale-95"
-                      title="تحديد الحجز كمنجز"
+                      className="px-3.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                      title="تحديد الحجز كمنجز ونقله للمنجزة"
                     >
-                      <CheckCheck className="w-3.5 h-3.5 text-sky-400" />
+                      <CheckCheck className="w-3.5 h-3.5" />
                       <span>تم الإنجاز</span>
                     </button>
                   )}
+
+                  {/* 3. إذا كانت الحالة منجزة أو مرفوضة أو ملغية: لا تظهر أزرار الإجراءات إطلاقاً */}
                 </div>
 
                 {/* Secondary Actions & Safe Deletion Confirmation */}
                 <div className="flex items-center gap-2">
                   <a
                     href={`https://wa.me/?text=${encodeURIComponent(
-                      `مرحباً أخي ${b.customerName} 💈\nبخصوص حجزك (${b.serviceName}) لموعد ${b.timeSlot}:\n` +
-                      (b.status === 'accepted' || b.status === 'approved' ? 'يسعدنا إبلاغك بأنه تم قبول وتأكيد حجزك، نتشرف بحضورك!' :
-                       b.status === 'rejected' ? 'نعتذر منك لعدم إمكانية استقبال الحجز في هذا التوقيت، يرجى اختيار موعد آخر.' :
-                       'نحن نتواصل معك بخصوص موعدك.')
+                      `مرحباً أخي ${b.customerName} 💈\nبخصوص حجزك (${b.serviceName}) لموعد ${b.timeSlot} بتأريخ ${b.date}:\n` +
+                      (b.status === 'accepted' || b.status === 'approved'
+                        ? 'يسعدنا إبلاغك بأنه تم قبول وتأكيد حجزك، نتشرف بحضورك بالموعد المحدد!'
+                        : b.status === 'completed'
+                        ? 'شكراً لزيارتك لنا اليوم في الصالون! نتمنى أن تكون الخدمة نالت رضاك ونسعد بخدمتك دائماً.'
+                        : b.status === 'rejected'
+                        ? 'نعتذر منك لعدم إمكانية استقبال الحجز في هذا التوقيت، يرجى اختيار موعد آخر مناسب.'
+                        : 'نحن نتواصل معك لتأكيد حجزك.')
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
