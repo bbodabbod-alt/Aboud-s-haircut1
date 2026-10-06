@@ -996,12 +996,14 @@ export function generateDynamicTimeSlots(
 
   try {
     // 1. فحص وجود أوقات العمل وتطبيق القيم الافتراضية الصارمة (Null Safety)
-    const safeOpenTime = (typeof openTime === 'string' && openTime.trim().length > 0)
-      ? openTime.trim()
+    const rawOpen = typeof openTime === 'string' ? openTime.trim() : '';
+    const safeOpenTime = (rawOpen.length > 0 && !rawOpen.includes('Invalid') && !rawOpen.includes('NaN') && !rawOpen.includes('undefined') && !rawOpen.includes('null'))
+      ? rawOpen
       : '03:30 م';
 
-    const safeCloseTime = (typeof closeTime === 'string' && closeTime.trim().length > 0)
-      ? closeTime.trim()
+    const rawClose = typeof closeTime === 'string' ? closeTime.trim() : '';
+    const safeCloseTime = (rawClose.length > 0 && !rawClose.includes('Invalid') && !rawClose.includes('NaN') && !rawClose.includes('undefined') && !rawClose.includes('null'))
+      ? rawClose
       : '03:30 ص';
 
     const parsedDuration = Number(slotDurationMinutes);
@@ -1074,9 +1076,9 @@ export function generateDynamicTimeSlots(
       currentOffset += duration;
     }
 
-    return slots.length > 0 ? slots : getFallbackTimeSlots(safeDayKey);
+    return (Array.isArray(slots) && slots.length > 0) ? slots : getFallbackTimeSlots(safeDayKey);
   } catch (err) {
-    console.error('Error generating dynamic time slots, returning fallback default slots:', err);
+    console.warn('generateDynamicTimeSlots caught error, returning fallback slots:', err);
     return getFallbackTimeSlots(safeDayKey);
   }
 }
