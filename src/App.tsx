@@ -13,8 +13,10 @@ import CustomerBookingBanner from './components/CustomerBookingBanner';
 import MobileBottomBar from './components/MobileBottomBar';
 import AnnouncementBanner from './components/AnnouncementBanner';
 import LiveNotificationToast from './components/LiveNotificationToast';
+import LoyaltyModal from './components/LoyaltyModal';
 import DashboardLayout from './components/dashboard/DashboardLayout';
 import DashboardLogin from './components/dashboard/DashboardLogin';
+import { Award, Gift } from 'lucide-react';
 
 import { 
   BarberService, BookingSubmission, SalonSettings, 
@@ -89,6 +91,7 @@ export default function App() {
   const [isBookingOpen, setIsBookingOpen] = useState(false);
   const [isMyBookingsOpen, setIsMyBookingsOpen] = useState(false);
   const [isAnnouncementsOpen, setIsAnnouncementsOpen] = useState(false);
+  const [isLoyaltyModalOpen, setIsLoyaltyModalOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<BarberService | null>(null);
   const [customerBookings, setCustomerBookings] = useState<BookingSubmission[]>(getCustomerBookings());
 
@@ -383,6 +386,7 @@ export default function App() {
         onOpenBooking={() => handleOpenBooking()}
         onOpenMyBookings={handleOpenMyBookings}
         onOpenAnnouncements={() => setIsAnnouncementsOpen(true)}
+        onOpenLoyaltyModal={() => setIsLoyaltyModalOpen(true)}
         announcementsCount={announcements.filter((a) => a.isActive).length}
         bookingsCount={customerBookings.length}
         settings={salonSettings}
@@ -406,6 +410,41 @@ export default function App() {
           onOpenBooking={() => handleOpenBooking()} 
           settings={salonSettings}
         />
+
+        {/* In-App Loyalty Program Promotional Banner */}
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-6 sm:-mt-8 mb-8 relative z-20">
+          <div 
+            onClick={() => setIsLoyaltyModalOpen(true)}
+            className="group p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-neutral-900 via-[#161a24] to-neutral-900 border border-amber-500/30 hover:border-amber-400/60 shadow-xl shadow-amber-500/5 hover:shadow-amber-500/10 transition-all duration-300 flex flex-col sm:flex-row items-center justify-between gap-4 cursor-pointer"
+          >
+            <div className="flex items-center gap-3.5 text-center sm:text-right">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-400 via-yellow-400 to-amber-500 text-neutral-950 flex items-center justify-center font-bold shadow-md shadow-amber-500/20 group-hover:scale-105 transition-transform shrink-0">
+                <Award className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                  <h3 className="text-sm sm:text-base font-black text-white">
+                    بطاقة الولاء الرقمية الافتراضية
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    10 أختام = حلاقة مجانية
+                  </span>
+                </div>
+                <p className="text-xs text-amber-200/90 mt-0.5">
+                  "احصل على ختم مع كل حلاقة، والـ 10 علينا!" · اضغط هنا لعرض بطاقتك وأختامك
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="px-4 py-2 rounded-xl bg-amber-500/15 group-hover:bg-amber-500 group-hover:text-neutral-950 text-amber-300 border border-amber-500/30 font-bold text-xs transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap"
+            >
+              <span>استعراض بطاقتي</span>
+              <span className="text-base leading-none">←</span>
+            </button>
+          </div>
+        </section>
 
         {/* Customer Active Booking Details Banner */}
         {latestCustomerBooking && (
@@ -452,7 +491,18 @@ export default function App() {
       />
 
       {/* Sticky Mobile Action Bar */}
-      <MobileBottomBar onOpenBooking={() => handleOpenBooking()} />
+      <MobileBottomBar 
+        onOpenBooking={() => handleOpenBooking()} 
+        onOpenLoyaltyModal={() => setIsLoyaltyModalOpen(true)}
+      />
+
+      {/* Virtual Loyalty Card Modal */}
+      <LoyaltyModal
+        isOpen={isLoyaltyModalOpen}
+        onClose={() => setIsLoyaltyModalOpen(false)}
+        initialPhone={customerBookings[0]?.customerPhone}
+        customerName={customerBookings[0]?.customerName}
+      />
 
       {/* New Booking Form Modal */}
       <BookingModal

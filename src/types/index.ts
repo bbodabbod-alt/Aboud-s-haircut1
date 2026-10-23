@@ -172,4 +172,16 @@ export interface AdminUser {
   isOwner?: boolean;
 }
 
+export interface CustomerLoyaltyData {
+  phone: string;
+  customerName: string;
+  stampsCount: number; // 0 to 10
+  completedVisits: number; // إجمالي الزيارات المكتملة
+  freeHaircutAvailable: boolean; // تصبح true عند بلوغ 10 أختام
+  freeHaircutsRedeemed?: number; // عدد الحلاقات المجانية المستفاد منها
+  lastVisitDate?: string;
+  updatedAt?: string;
+}
+
+
 

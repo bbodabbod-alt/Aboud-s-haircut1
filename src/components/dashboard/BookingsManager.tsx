@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { BookingSubmission, BookingStatus } from '../../types';
+import { BookingSubmission, BookingStatus, CustomerLoyaltyData } from '../../types';
 import { updateBookingStatus, deleteBooking } from '../../utils/salonStore';
 import { completeBooking } from '../../utils/bookingApi';
 import { updateBookingStatusInFirebase, deleteBookingFromFirebase } from '../../utils/firebaseBookingService';
+import { subscribeToAllLoyaltyCustomers, normalizeLoyaltyPhone, redeemFreeHaircutInFirebase } from '../../utils/loyaltyService';
 import { 
   Calendar, Clock, User, Phone, CheckCircle, XCircle, 
-  CheckCheck, AlertCircle, Search, ExternalLink, Trash2, Filter
+  CheckCheck, AlertCircle, Search, ExternalLink, Trash2, Filter,
+  Award, Gift, Sparkles
 } from 'lucide-react';
 
 interface BookingsManagerProps {
@@ -18,11 +20,20 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
   const [searchQuery, setSearchQuery] = useState('');
   const [currentBookings, setCurrentBookings] = useState<BookingSubmission[]>(bookings);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [loyaltyCustomers, setLoyaltyCustomers] = useState<CustomerLoyaltyData[]>([]);
 
   // Sync with prop updates from Firebase onValue
   useEffect(() => {
     setCurrentBookings(bookings);
   }, [bookings]);
+
+  // Sync loyalty customers
+  useEffect(() => {
+    const unsub = subscribeToAllLoyaltyCustomers((list) => {
+      setLoyaltyCustomers(list);
+    });
+    return () => unsub();
+  }, []);
 
   // Handle status update (Firebase & Local real-time sync for isolated bookingId)
   const handleStatusChange = async (bookingId: string, newStatus: BookingStatus) => {
@@ -330,6 +341,42 @@ export default function BookingsManager({ bookings, onBookingsUpdated }: Booking
                     <Phone className="w-3.5 h-3.5 text-amber-400" />
                     <span>{b.customerPhone}</span>
                   </a>
+
+                  {/* Customer Loyalty Pill */}
+                  {(() => {
+                    const cleanPhone = normalizeLoyaltyPhone(b.customerPhone);
+                    const loyalty = loyaltyCustomers.find((l) => normalizeLoyaltyPhone(l.phone) === cleanPhone);
+                    if (!loyalty) {
+                      return (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-neutral-400 bg-neutral-900/80 px-2 py-0.5 rounded-lg border border-neutral-800">
+                          <Award className="w-3 h-3 text-amber-500/70" />
+                          <span>الولاء: 0/10 أختام</span>
+                        </span>
+                      );
+                    }
+                    const isFree = loyalty.stampsCount >= 10 || loyalty.freeHaircutAvailable;
+                    return (
+                      <div className="flex items-center gap-1.5">
+                        <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-lg ${
+                          isFree
+                            ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-neutral-950 shadow-sm animate-pulse'
+                            : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                        }`}>
+                          {isFree ? <Gift className="w-3 h-3" /> : <Award className="w-3 h-3 text-amber-400" />}
+                          <span>{isFree ? 'مؤهل لحلاقة مجانية (10/10)!' : `الولاء: ${loyalty.stampsCount}/10 أختام`}</span>
+                        </span>
+                        {isFree && (
+                          <button
+                            onClick={() => redeemFreeHaircutInFirebase(b.customerPhone)}
+                            className="text-[10px] font-bold px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-amber-300 border border-amber-500/30 rounded-lg cursor-pointer transition-colors"
+                            title="صرف وتأكيد الحلاقة المجانية وإعادة العداد إلى 0"
+                          >
+                            صرف الهدية
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs text-neutral-300">

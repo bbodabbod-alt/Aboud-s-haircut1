@@ -13,10 +13,11 @@ import WebsiteContentManager from './WebsiteContentManager';
 import AdminsPermissionsManager from './AdminsPermissionsManager';
 import SalonSettingsManager from './SalonSettingsManager';
 import AccountSettingsManager from './AccountSettingsManager';
+import LoyaltyCustomersManager from './LoyaltyCustomersManager';
 import NotificationsDropdown from './NotificationsDropdown';
 import { 
   Calendar, Sparkles, Settings, KeyRound, LogOut, 
-  Scissors, Menu, X, Power, ShieldCheck, ArrowRight, Star, Megaphone, Crown, Clock, Globe
+  Scissors, Menu, X, Power, ShieldCheck, ArrowRight, Star, Megaphone, Crown, Clock, Globe, Award
 } from 'lucide-react';
 
 interface DashboardLayoutProps {
@@ -46,7 +47,7 @@ export default function DashboardLayout({
   onExitToCustomerSite,
   onLogout,
 }: DashboardLayoutProps) {
-  const [activeTab, setActiveTab] = useState<'bookings' | 'services' | 'timeslots' | 'content' | 'ratings' | 'announcements' | 'admins' | 'settings' | 'account'>('bookings');
+  const [activeTab, setActiveTab] = useState<'bookings' | 'services' | 'timeslots' | 'content' | 'loyalty' | 'ratings' | 'announcements' | 'admins' | 'settings' | 'account'>('bookings');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const pendingBookingsCount = bookings.filter((b) => b.status === 'pending').length;
@@ -216,6 +217,21 @@ export default function DashboardLayout({
               <div className="flex items-center gap-2.5">
                 <Globe className="w-4 h-4 text-amber-400" />
                 <span>إدارة محتوى الموقع</span>
+              </div>
+            </button>
+
+            {/* 5. سجل ولاء العملاء (Loyalty Progress) */}
+            <button
+              onClick={() => setActiveTab('loyalty')}
+              className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                activeTab === 'loyalty'
+                  ? 'bg-amber-500 text-neutral-950 shadow-md shadow-amber-500/10'
+                  : 'text-neutral-300 hover:bg-neutral-800 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Award className="w-4 h-4 text-amber-400" />
+                <span>سجل ولاء العملاء (Loyalty)</span>
               </div>
             </button>
 
@@ -395,6 +411,22 @@ export default function DashboardLayout({
               </div>
             </button>
 
+            {/* Mobile Loyalty Progress Manager */}
+            <button
+              onClick={() => {
+                setActiveTab('loyalty');
+                setMobileSidebarOpen(false);
+              }}
+              className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between ${
+                activeTab === 'loyalty' ? 'bg-amber-500 text-neutral-950' : 'text-neutral-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Award className="w-4 h-4 text-amber-400" />
+                <span>سجل ولاء العملاء (Loyalty Progress)</span>
+              </div>
+            </button>
+
             <button
               onClick={() => {
                 setActiveTab('ratings');
@@ -513,6 +545,10 @@ export default function DashboardLayout({
               onSettingsUpdated={onRefreshData}
               onServicesUpdated={onRefreshData}
             />
+          )}
+
+          {activeTab === 'loyalty' && (
+            <LoyaltyCustomersManager />
           )}
 
           {activeTab === 'ratings' && (

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { getShopStatus, ShopStatusResult } from '../utils/shopHours';
 import { 
   Scissors, Clock, Calendar, Phone, Menu, X, BookmarkCheck, 
-  BellRing, Check, Megaphone, Sparkles, ShieldCheck, MapPin 
+  BellRing, Check, Megaphone, Sparkles, ShieldCheck, MapPin, Award 
 } from 'lucide-react';
 import { SalonSettings, DashboardNotification } from '../types';
 import CustomerNotificationsDropdown from './CustomerNotificationsDropdown';
@@ -11,6 +11,7 @@ interface HeaderProps {
   onOpenBooking: () => void;
   onOpenMyBookings: () => void;
   onOpenAnnouncements?: () => void;
+  onOpenLoyaltyModal?: () => void;
   announcementsCount?: number;
   bookingsCount: number;
   settings?: SalonSettings;
@@ -24,6 +25,7 @@ export default function Header({
   onOpenBooking,
   onOpenMyBookings,
   onOpenAnnouncements = () => {},
+  onOpenLoyaltyModal = () => {},
   announcementsCount = 0,
   bookingsCount,
   settings,
@@ -181,6 +183,15 @@ export default function Header({
             ) : null}
           </button>
 
+          <button
+            onClick={onOpenLoyaltyModal}
+            className="hover:text-amber-400 text-amber-300 transition-colors flex items-center gap-1.5 cursor-pointer relative py-1 font-semibold"
+            title="عرض بطاقة الولاء الرقمية الخاصة بك"
+          >
+            <Award className="w-3.5 h-3.5 text-amber-400" />
+            <span>بطاقة الولاء</span>
+          </button>
+
           <a href="#about" className="hover:text-amber-400 transition-colors">
             عن الصالون
           </a>
@@ -302,7 +313,23 @@ export default function Header({
               )}
             </button>
 
-            {/* 5. عن الصالون */}
+            {/* 5. بطاقة الولاء الرقمية */}
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                onOpenLoyaltyModal();
+              }}
+              className="w-full px-3.5 py-3 rounded-xl text-sm font-bold text-amber-300 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 hover:border-amber-500/40 active:scale-98 transition-all flex items-center justify-between text-right cursor-pointer shadow-sm shadow-amber-500/5"
+            >
+              <div className="flex items-center gap-2.5">
+                <Award className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>بطاقة الولاء الرقمية</span>
+              </div>
+              <span className="text-[11px] text-amber-400/90 font-normal">10 أختام = حلاقة مجانية</span>
+            </button>
+
+            {/* 6. عن الصالون */}
             <a
               href="#about"
               onClick={() => setMobileMenuOpen(false)}

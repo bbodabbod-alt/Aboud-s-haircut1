@@ -1,10 +1,15 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { BarberService, BookingSubmission, DayTimeSlot, DayKey, SalonSettings } from '../types';
+import { BarberService, BookingSubmission, DayTimeSlot, DayKey, SalonSettings, CustomerLoyaltyData } from '../types';
 import { SERVICES as DEFAULT_SERVICES } from '../data/services';
 import { submitBooking } from '../utils/bookingApi';
 import { generateDynamicTimeSlots, getAllBookings, getFallbackTimeSlots } from '../utils/salonStore';
 import { subscribeToFirebaseBookings, subscribeToFirebaseWorkingHours } from '../utils/firebaseBookingService';
-import { X, Calendar, Clock, User, Phone, CheckCircle2, AlertCircle, Share2, Copy, Check } from 'lucide-react';
+import { subscribeToCustomerLoyalty, normalizeLoyaltyPhone, redeemFreeHaircutInFirebase } from '../utils/loyaltyService';
+import LoyaltyCard from './LoyaltyCard';
+import { 
+  X, Calendar, Clock, User, Phone, CheckCircle2, AlertCircle, 
+  Share2, Copy, Check, Award, Gift, Sparkles 
+} from 'lucide-react';
 
 interface BookingModalProps {
   isOpen: boolean;
@@ -68,6 +73,23 @@ function BookingModalInner({
   const [customerPhone, setCustomerPhone] = useState('');
   const [selectedDate, setSelectedDate] = useState<DayKey>('today');
   const [notes, setNotes] = useState('');
+  const [useFreeHaircut, setUseFreeHaircut] = useState<boolean>(false);
+  const [showLoyaltyInBooking, setShowLoyaltyInBooking] = useState<boolean>(false);
+  const [customerLoyalty, setCustomerLoyalty] = useState<CustomerLoyaltyData | null>(null);
+
+  // Sync customer loyalty data as phone is entered
+  useEffect(() => {
+    const clean = normalizeLoyaltyPhone(customerPhone);
+    if (!clean) {
+      setCustomerLoyalty(null);
+      setUseFreeHaircut(false);
+      return;
+    }
+    const unsub = subscribeToCustomerLoyalty(clean, (data) => {
+      setCustomerLoyalty(data);
+    });
+    return () => unsub();
+  }, [customerPhone]);
 
   // 1. التهيئة الفورية بالقيم الافتراضية الصارمة (Hardcoded Fallback) دون انتظار Firebase
   const initialOpen = settings?.workingHours?.openTime || settings?.openTime || DEFAULT_WORKING_HOURS.openTime;
@@ -314,19 +336,32 @@ function BookingModalInner({
     setIsSubmitting(true);
 
     try {
+      // حساب السعر النهائي مع دعم الحلاقة المجانية من بطاقة الولاء
+      const finalPrice = useFreeHaircut ? 0 : currentService.price;
+      const freeTag = useFreeHaircut ? '[مستفيد من حلاقة مجانية بالكامل عبر بطاقة الولاء]' : '';
+      const finalNotes = notes.trim() ? (freeTag ? `${notes.trim()} - ${freeTag}` : notes.trim()) : freeTag;
+
       // إرسال بيانات الحجز وحفظها ومزامنتها وترميز الوقت كمحجوز في Firebase
       const result = await submitBooking({
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
         serviceId: currentService.id,
         serviceName: currentService.name,
-        servicePrice: currentService.price,
+        servicePrice: finalPrice,
         date: `${activeDateOption.label} (${activeDateOption.dateStr})`,
         timeSlot: selectedTimeSlot,
-        notes: notes.trim(),
+        notes: finalNotes,
       });
 
       if (result && result.success && result.booking) {
+        // إذا تم تطبيق الحلاقة المجانية، يتم تصفير رصيد أختام الزبون إلى 0
+        if (useFreeHaircut) {
+          try {
+            await redeemFreeHaircutInFirebase(customerPhone.trim());
+          } catch (redeemErr) {
+            console.error('Error redeeming free loyalty haircut on booking submit:', redeemErr);
+          }
+        }
         // تفعيل عرض كارت "تم تأكيد موعدك بنجاح" فور نجاح عملية الكتابة في Firebase
         setConfirmedBooking(result.booking);
         // إشعار التطبيق دون إغلاق الـ Modal
@@ -469,6 +504,24 @@ function BookingModalInner({
                     {(Number(confirmedBooking.servicePrice) || 0).toLocaleString('en-US')} د.ع
                   </span>
                 </div>
+              </div>
+
+              {/* Loyalty Card Display on Booking Confirmation */}
+              <div className="text-right space-y-2 pt-1">
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                    <Award className="w-4 h-4 text-amber-400" />
+                    <span>بطاقة ولائك الرقمية</span>
+                  </span>
+                  <span className="text-[10px] text-amber-300/80 font-medium">
+                    ختمك القادم قيد الانتظار فور حلاقتك بالصالون!
+                  </span>
+                </div>
+                <LoyaltyCard
+                  initialPhone={confirmedBooking.customerPhone}
+                  customerName={confirmedBooking.customerName}
+                  compact={true}
+                />
               </div>
 
               {/* Action Buttons */}
@@ -672,8 +725,80 @@ function BookingModalInner({
                     placeholder="07XXXXXXXX"
                     className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400 transition-colors text-right"
                   />
+                  <p className="text-[11px] text-amber-300/90 mt-1.5 flex items-start gap-1">
+                    <span className="font-bold text-amber-400 shrink-0">ملاحظة هامة:</span>
+                    <span>يرجى إدخال رقم هاتفك الصحيح والخاص بك عند كل حجز، لكي يتم احتساب وتراكم النقاط والأختام تلقائياً على بطاقة الولاء الخاصة بك.</span>
+                  </p>
                 </div>
               </div>
+
+              {/* Loyalty Card Teaser / Free Reward Selector in Booking */}
+              {customerPhone.length >= 7 && (
+                <div className="space-y-2">
+                  {/* Free Haircut Available Banner */}
+                  {(customerLoyalty?.stampsCount! >= 10 || customerLoyalty?.freeHaircutAvailable) && (
+                    <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border-2 border-amber-400 text-right space-y-2 shadow-lg shadow-amber-500/10">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                          <Gift className="w-4 h-4 text-amber-400 animate-bounce" />
+                          <span>🎉 مبارك! لديك حلاقة مجانية مستحقة من بطاقة الولاء!</span>
+                        </span>
+                        <span className="text-[10px] bg-amber-400 text-neutral-950 font-black px-2 py-0.5 rounded-full">
+                          10/10 أختام
+                        </span>
+                      </div>
+                      <label className="flex items-center gap-2 cursor-pointer text-xs text-white bg-neutral-950/60 p-2 rounded-xl border border-amber-500/30">
+                        <input
+                          type="checkbox"
+                          checked={useFreeHaircut}
+                          onChange={(e) => setUseFreeHaircut(e.target.checked)}
+                          className="w-4 h-4 accent-amber-500 rounded cursor-pointer"
+                        />
+                        <span className="font-bold text-amber-300">
+                          تطبيق الحلاقة المجانية لهذا الحجز (السعر سيكون 0 د.ع)
+                        </span>
+                      </label>
+                    </div>
+                  )}
+
+                  {/* Loyalty Bar Info & Card Toggle */}
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-neutral-900/90 border border-neutral-800 text-xs">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-amber-500/15 text-amber-400 flex items-center justify-center shrink-0">
+                        <Award className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-neutral-300 font-semibold text-[11px] block">
+                          بطاقة ولائك الافتراضية:
+                        </span>
+                        <span className="text-amber-400 font-bold text-xs">
+                          {customerLoyalty 
+                            ? `${customerLoyalty.stampsCount} من 10 أختام مكتسبة` 
+                            : 'احصل على ختم مع كل حلاقة، والـ 10 علينا!'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowLoyaltyInBooking(!showLoyaltyInBooking)}
+                      className="px-2.5 py-1 text-[11px] font-bold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-lg cursor-pointer transition-colors"
+                    >
+                      {showLoyaltyInBooking ? 'إخفاء البطاقة' : 'عرض البطاقة'}
+                    </button>
+                  </div>
+
+                  {showLoyaltyInBooking && (
+                    <div className="pt-1">
+                      <LoyaltyCard
+                        initialPhone={customerPhone}
+                        customerName={customerName}
+                        compact={true}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Optional Notes */}
               <div>

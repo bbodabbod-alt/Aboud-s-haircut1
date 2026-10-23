@@ -499,6 +499,16 @@ export async function completeBookingInFirebase(
       bookedBookingId: '',
       updatedAt: new Date().toISOString(),
     });
+
+    // 3. زيادة ختم الولاء للزبون تلقائياً برقم هاتفه
+    if (booking.customerPhone) {
+      try {
+        const { recordCompletedVisitForLoyalty } = await import('./loyaltyService');
+        await recordCompletedVisitForLoyalty(booking.customerPhone, booking.customerName, booking);
+      } catch (loyaltyErr) {
+        console.error('Error adding loyalty stamp on booking completion:', loyaltyErr);
+      }
+    }
   } catch (error) {
     console.error('Error completing booking in Realtime Database:', error);
   }
@@ -527,8 +537,19 @@ export async function updateBookingStatusInFirebase(
       updatedAt: new Date().toISOString(),
     });
 
+    // عند تحويل الحالة إلى 'completed': إضافة ختم للزبون
+    if (newStatus === 'completed' && bookingDetails?.customerPhone) {
+      try {
+        const { recordCompletedVisitForLoyalty } = await import('./loyaltyService');
+        await recordCompletedVisitForLoyalty(bookingDetails.customerPhone, bookingDetails.customerName, bookingDetails);
+      } catch (loyaltyErr) {
+        console.error('Error recording loyalty stamp in updateBookingStatusInFirebase:', loyaltyErr);
+      }
+    }
+
     // عند الرفض أو الإنجاز أو الإلغاء، يتم تحرير التوقيت ليعود متاحاً للجميع
     if (newStatus === 'completed' || newStatus === 'rejected' || newStatus === 'cancelled') {
+
       if (bookingDetails) {
         const dayKey = getDayKeyFromDateStr(bookingDetails.date);
         const slotDocId = getSlotDocId(dayKey, bookingDetails.timeSlot);

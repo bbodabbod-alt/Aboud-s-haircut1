@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 import { BookingSubmission, BookingStatus } from '../types';
 import { subscribeToFirebaseBookings } from '../utils/firebaseBookingService';
-import { X, Calendar, Clock, Scissors, Phone, User, CheckCircle2, Share2, Trash2, XCircle, CheckCheck } from 'lucide-react';
+import LoyaltyCard from './LoyaltyCard';
+import { 
+  X, Calendar, Clock, Scissors, Phone, User, CheckCircle2, 
+  Share2, Trash2, XCircle, CheckCheck, Award, Sparkles 
+} from 'lucide-react';
 
 interface MyBookingsModalProps {
   isOpen: boolean;
@@ -20,6 +24,7 @@ export default function MyBookingsModal({
 }: MyBookingsModalProps) {
   // Live state synchronized with Firebase Firestore
   const [liveBookings, setLiveBookings] = useState<BookingSubmission[]>(bookings);
+  const [activeTab, setActiveTab] = useState<'bookings' | 'loyalty'>('bookings');
 
   useEffect(() => {
     setLiveBookings(bookings);
@@ -150,9 +155,43 @@ export default function MyBookingsModal({
           </button>
         </div>
 
+        {/* Tab Navigation */}
+        <div className="flex items-center px-6 pt-3 bg-[#161a24] border-b border-neutral-800 gap-2">
+          <button
+            onClick={() => setActiveTab('bookings')}
+            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 cursor-pointer ${
+              activeTab === 'bookings'
+                ? 'border-amber-400 text-amber-400'
+                : 'border-transparent text-neutral-400 hover:text-white'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5" />
+            <span>حجوزاتي ({liveBookings.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('loyalty')}
+            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 cursor-pointer ${
+              activeTab === 'loyalty'
+                ? 'border-amber-400 text-amber-400'
+                : 'border-transparent text-neutral-400 hover:text-white'
+            }`}
+          >
+            <Award className="w-3.5 h-3.5" />
+            <span>بطاقة الولاء الرقمية ⭐</span>
+          </button>
+        </div>
+
         {/* Modal Body */}
         <div className="p-6 max-h-[72vh] overflow-y-auto">
-          {liveBookings.length === 0 ? (
+          {activeTab === 'loyalty' ? (
+            <div className="py-2">
+              <LoyaltyCard
+                initialPhone={liveBookings[0]?.customerPhone}
+                customerName={liveBookings[0]?.customerName}
+              />
+            </div>
+          ) : liveBookings.length === 0 ? (
             /* Empty State */
             <div className="text-center py-12 px-4 space-y-4">
               <div className="w-16 h-16 rounded-2xl bg-neutral-900 border border-neutral-800 flex items-center justify-center mx-auto text-neutral-500">
